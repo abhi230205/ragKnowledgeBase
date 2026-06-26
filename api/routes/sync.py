@@ -1,26 +1,41 @@
-"""Sync route (POST /sync) — triggers a fresh ingestion run.
+"""Sync route (POST /sync) — triggers a fresh ingestion run in the background.
 
-TODO (Phase 2): enqueue a single APScheduler job (no overlapping runs) that runs
-the Drive -> vector-store pipeline:
-    list (recursive) -> diff (added/modified/deleted/unchanged) -> download ->
-    parse (PyMuPDF/pdfplumber) -> chunk (overlap, page-tracked) -> embed -> upsert.
-Returns 202 with a job id so the HTTP request doesn't block on a long sync.
+Enqueues a single APScheduler job (the pipeline: list -> diff -> download -> parse
+-> chunk -> embed -> upsert) and returns 202 with a job id immediately, so the
+request doesn't block on a long sync. Overlapping triggers get 409.
 
-Planned response (202): {"job_id": "sync_8f12", "status": "running"}
+GET /sync/status reports the live/last job state.
 """
 
 from __future__ import annotations
 
-from fastapi import APIRouter, status
+from typing import Optional
+
+from fastapi import APIRouter
+from fastapi import status as http_status
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
+
+from ingestion.scheduler import get_state, trigger_sync
 
 router = APIRouter(tags=["sync"])
 
 
+class SyncRequest(BaseModel):
+    folder_id: Optional[str] = None
+
+
 @router.post("/sync")
-def trigger_sync():
-    """Start a background ingestion run. TODO: implement (Phase 2)."""
-    return JSONResponse(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        content={"detail": "POST /sync not implemented yet (Phase 2)"},
-    )
+def post_sync(body: Optional[SyncRequest] = None):
+    """Start a background ingestion run (202). 409 if one is already running."""
+    folder_id = body.folder_id if body else None
+    result = trigger_sync(folder_id)
+    if result.get("already_running"):
+        return JSONResponse(status_code=http_status.HTTP_409_CONFLICT, content=result)
+    return JSONResponse(status_code=http_status.HTTP_202_ACCEPTED, content=result)
+
+
+@router.get("/sync/status")
+def sync_status() -> dict:
+    """Live state of the current/last sync job."""
+    return get_state()

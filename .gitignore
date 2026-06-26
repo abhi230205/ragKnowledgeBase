@@ -39,6 +39,10 @@ st/
 models/
 .cache/
 
+# ---- Playwright MCP artifacts (snapshots/screenshots) ----
+.playwright-mcp/
+rag-ui-*.png
+
 # ---- OS / editor junk ----
 .DS_Store
 Thumbs.db

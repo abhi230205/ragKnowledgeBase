@@ -14,6 +14,7 @@ from fastapi import FastAPI
 
 from config import settings
 from db.session import init_db
+from ingestion.scheduler import shutdown_scheduler, start_scheduler
 from routes import chat, config as config_routes, health, search, status, sync
 
 logging.basicConfig(level=logging.INFO)
@@ -22,8 +23,11 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Startup/shutdown. Creates DB tables (idempotent). Scheduler starts in Phase 2."""
+    """Startup/shutdown. Creates DB tables (idempotent) and starts the ingestion
+    scheduler. The embedding model + Chroma load lazily on first use, so /health
+    stays cheap."""
     init_db()
+    start_scheduler()
     logger.info(
         "RAG API started — SQLite=%s, Chroma=%s, embed=%s, chat=%s",
         settings.sqlite_path,
@@ -32,6 +36,7 @@ async def lifespan(app: FastAPI):
         settings.chat_model,
     )
     yield
+    shutdown_scheduler()
     logger.info("RAG API shutting down.")
 
 

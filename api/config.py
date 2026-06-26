@@ -28,6 +28,17 @@ class Settings(BaseSettings):
     # ---- Embeddings (local, open-source) ----
     embedding_model: str = "all-MiniLM-L6-v2"
 
+    # ---- Chunking (token-aware; clamped to the embedding model's max at runtime) ----
+    # all-MiniLM-L6-v2 truncates at 256 tokens, so the default target is sized to
+    # the model to avoid silently dropping the tail of each chunk. Tokens are
+    # counted with the embedding model's own tokenizer in the pipeline.
+    chunk_tokens: int = 256       # target chunk size in model tokens
+    chunk_overlap: int = 38       # ~15% overlap, in model tokens
+    chunk_token_margin: int = 8   # headroom for special tokens ([CLS]/[SEP])
+
+    # ---- Vector store ----
+    collection_name: str = "knowledge_base"
+
     # ---- Retrieval ----
     top_k: int = 5
     relevance_threshold: float = 0.25  # cosine-similarity floor for "no context"

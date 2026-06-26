@@ -19,8 +19,14 @@ streaming chat that answers **only** from retrieved context, with citations.
   (384-dim), in-process, model selectable. **Claude is NOT an embedding model —
   never embed via the Anthropic API.** (Voyage AI is the optional paid alternative.)
 - **PDF parsing:** PyMuPDF (`fitz`) primary; pdfplumber for table-heavy pages.
-- **Chunking:** sentence-aware sliding window, ~800 tokens, ~15% overlap,
-  page-tracked (start_page/end_page). Overlap is mandatory.
+- **Chunking:** sentence-aware sliding window, **token-aware** and sized to the
+  embedding model's max — default ~256 tokens for `all-MiniLM-L6-v2`, clamped at
+  runtime via `embedder.effective_chunk_tokens()`; ~15% overlap; page-tracked
+  (start_page/end_page). Overlap is mandatory. **Why not ~800:** MiniLM truncates
+  input at 256 tokens, so larger chunks would be silently cut before embedding
+  (dropping each chunk's tail). Sizing chunks to the model avoids that. Tunable via
+  `settings.chunk_tokens` / `chunk_overlap`; a larger-context model raises the
+  effective size automatically. (Approved change from the plan's ~800, 2026-06-26.)
 - **Chat model:** `claude-sonnet-4-6`, **streamed** (Anthropic Messages API).
 - **Frontend:** **Streamlit** (no React), calling the API over HTTP; chat reads the
   `/chat` SSE stream into `st.write_stream`.
@@ -90,8 +96,12 @@ settings`) — NOT prefixed with `api.`. Tests run from `api/` (`pytest.ini` set
 - **Phase 0–1 (Day 1) — DONE:** scaffold, Docker Compose, `/health`, pydantic config,
   SQLAlchemy models (Config/FileRecord), REAL Drive v3 client (recursive PDF list +
   byte download, typed auth/API errors), stubs for the rest, smoke test.
-- **Phase 2 (Day 2):** pdf_parser, chunker, embedder, embedded Chroma add/query,
-  the sync diff (added/modified/deleted/unchanged), `/sync` background job, `/status`.
+- **Phase 2 (Day 2) — DONE:** pdf_parser (PyMuPDF block-sorted + pdfplumber tables
+  + scanned-page flagging), token-aware chunker, sentence-transformers embedder,
+  embedded Chroma (cosine; upsert/query/delete/rename/count/reset), pure sync diff
+  (added/modified/deleted/renamed/unchanged), APScheduler `/sync` (202, non-overlap)
+  + `/sync/status`, real `/status`. Unit tests: chunking/diff/embedding/retrieval.
+  Ingestion pipeline in `ingestion/pipeline.py`; per-file errors are non-fatal.
 - **Phase 3 (Day 2–3):** `/search` (top-k + filter + threshold).
 - **Phase 4 (Day 3):** `/chat` — grounding prompt, no-context guard, multi-turn,
   Claude streaming → SSE.
