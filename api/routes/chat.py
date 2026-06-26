@@ -57,14 +57,14 @@ async def chat(body: ChatRequest):
     if not (body.session_id or "").strip():
         raise HTTPException(status_code=422, detail="session_id is required")
 
-    top_k = body.top_k if body.top_k and body.top_k > 0 else settings.top_k
-
-    # Resolve creds/model + history; record the user turn (before streaming).
+    # Resolve creds/model/top_k + history; record the user turn (before streaming).
     session = get_session()
     try:
         cfg = crud.get_or_create_config(session)
         api_key = cfg.anthropic_api_key or settings.anthropic_api_key
         model = cfg.chat_model or settings.chat_model
+        # Honor the request, then the UI-configured top_k, then the env default.
+        top_k = body.top_k if (body.top_k and body.top_k > 0) else (cfg.top_k or settings.top_k)
         history = crud.get_history(session, body.session_id, settings.max_history_turns * 2)
         crud.add_message(session, body.session_id, "user", question)
     finally:

@@ -43,6 +43,7 @@ models/
 # ---- Playwright MCP artifacts (snapshots/screenshots) ----
 .playwright-mcp/
 rag-ui-*.png
+ui-*.png
 
 # ---- OS / editor junk ----
 .DS_Store
