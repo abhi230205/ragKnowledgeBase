@@ -9,10 +9,10 @@ from __future__ import annotations
 
 import os
 
+from config import settings
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from config import settings
 from db.models import Base
 
 # check_same_thread=False so the APScheduler background job (a different thread)

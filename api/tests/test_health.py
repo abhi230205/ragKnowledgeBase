@@ -7,7 +7,6 @@ lands across Phases 2–6 per the test plan.
 from __future__ import annotations
 
 from fastapi.testclient import TestClient
-
 from main import app
 
 client = TestClient(app)

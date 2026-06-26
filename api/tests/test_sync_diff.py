@@ -13,10 +13,10 @@ def _f(id, name, md5):
 
 def test_compute_diff_classifies_all_cases():
     drive = [
-        _f("new", "new.pdf", "h_new"),       # added
-        _f("mod", "mod.pdf", "h_v2"),        # modified (md5 changed)
+        _f("new", "new.pdf", "h_new"),  # added
+        _f("mod", "mod.pdf", "h_v2"),  # modified (md5 changed)
         _f("ren", "renamed.pdf", "h_same"),  # renamed (md5 same, name changed)
-        _f("keep", "keep.pdf", "h_keep"),    # unchanged
+        _f("keep", "keep.pdf", "h_keep"),  # unchanged
     ]
     tracked = {
         "mod": {"md5_checksum": "h_v1", "file_name": "mod.pdf"},

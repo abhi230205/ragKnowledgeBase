@@ -17,10 +17,11 @@ from config import settings
 from db import crud
 from db.session import get_session
 from embeddings import embedder
+from vectorstore import chroma_store
+
 from ingestion import chunker, pdf_parser
 from ingestion.drive_client import DriveAuthError, DriveClient, DriveError
 from ingestion.sync_diff import compute_diff
-from vectorstore import chroma_store
 
 logger = logging.getLogger(__name__)
 
@@ -139,7 +140,12 @@ def _process_file(session, collection, client: DriveClient, f, counts) -> int | 
 
     if not pdf_parser.has_extractable_text(pages):
         crud.upsert_file(
-            session, f.id, f.name, f.md5_checksum, f.modified_time, 0,
+            session,
+            f.id,
+            f.name,
+            f.md5_checksum,
+            f.modified_time,
+            0,
             status="no_extractable_text",
         )
         counts["errors"].append({"file": f.name, "reason": "no_extractable_text"})
@@ -153,7 +159,12 @@ def _process_file(session, collection, client: DriveClient, f, counts) -> int | 
     )
     if not chunks:
         crud.upsert_file(
-            session, f.id, f.name, f.md5_checksum, f.modified_time, 0,
+            session,
+            f.id,
+            f.name,
+            f.md5_checksum,
+            f.modified_time,
+            0,
             status="no_extractable_text",
         )
         counts["errors"].append({"file": f.name, "reason": "no_extractable_text"})
@@ -162,7 +173,12 @@ def _process_file(session, collection, client: DriveClient, f, counts) -> int | 
     embeddings = embedder.embed_texts([c.text for c in chunks])
     chroma_store.add_chunks(collection, f.id, f.name, chunks, embeddings)
     crud.upsert_file(
-        session, f.id, f.name, f.md5_checksum, f.modified_time, len(chunks),
+        session,
+        f.id,
+        f.name,
+        f.md5_checksum,
+        f.modified_time,
+        len(chunks),
         status="embedded",
     )
     counts["chunks_created"] += len(chunks)

@@ -14,9 +14,8 @@ from typing import Optional
 from fastapi import APIRouter
 from fastapi import status as http_status
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
-
 from ingestion.scheduler import get_state, trigger_sync
+from pydantic import BaseModel
 
 router = APIRouter(tags=["sync"])
 

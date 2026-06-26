@@ -7,7 +7,6 @@ app-data volume), so run them in the container: `docker compose exec api pytest`
 from __future__ import annotations
 
 import pytest
-
 from embeddings import embedder
 
 

@@ -10,12 +10,12 @@ from __future__ import annotations
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
-
 from config import settings
 from db.session import init_db
+from fastapi import FastAPI
 from ingestion.scheduler import shutdown_scheduler, start_scheduler
-from routes import chat, config as config_routes, health, search, status, sync
+from routes import chat, health, search, status, sync
+from routes import config as config_routes
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

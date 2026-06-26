@@ -37,10 +37,7 @@ def _extract_page_blocks(page) -> str:
     raw stream order.
     """
     blocks = page.get_text("blocks")
-    text_blocks = [
-        b for b in blocks
-        if len(b) >= 5 and isinstance(b[4], str) and b[4].strip()
-    ]
+    text_blocks = [b for b in blocks if len(b) >= 5 and isinstance(b[4], str) and b[4].strip()]
     text_blocks.sort(key=lambda b: (round(b[1], 1), round(b[0], 1)))
     return "\n".join(b[4].strip() for b in text_blocks).strip()
 

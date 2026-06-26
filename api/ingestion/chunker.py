@@ -24,6 +24,7 @@ import re
 from dataclasses import dataclass
 from typing import Callable
 
+
 # Default counter (word-based) — fast and dependency-free, used in tests. The
 # pipeline injects the embedding model's tokenizer for production accuracy.
 def default_token_counter(text: str) -> int:
@@ -73,9 +74,7 @@ def _split_long_sentence(
     return pieces or [sentence]
 
 
-def _build_sentences(
-    pages, chunk_tokens: int, token_counter: Callable[[str], int]
-) -> list[_Sent]:
+def _build_sentences(pages, chunk_tokens: int, token_counter: Callable[[str], int]) -> list[_Sent]:
     sentences: list[_Sent] = []
     for page in pages:
         for raw in _split_sentences(page.text or ""):

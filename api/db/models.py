@@ -63,6 +63,4 @@ class FileRecord(Base):
     # status: pending | embedded | error | no_extractable_text
     status: Mapped[str] = mapped_column(String, default="pending")
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
-    last_synced: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    last_synced: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

@@ -70,9 +70,7 @@ def add_chunks(collection, file_id: str, file_name: str, chunks, embeddings) -> 
         }
         for c in chunks
     ]
-    collection.upsert(
-        ids=ids, embeddings=embeddings, documents=documents, metadatas=metadatas
-    )
+    collection.upsert(ids=ids, embeddings=embeddings, documents=documents, metadatas=metadatas)
     return len(ids)
 
 

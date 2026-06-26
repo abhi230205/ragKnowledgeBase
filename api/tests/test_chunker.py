@@ -16,9 +16,7 @@ def _page(n: int, text: str) -> PageText:
 
 def test_chunk_count_no_overlap():
     # 10 sentences x 10 tokens, window 25, overlap 0 -> 2 sentences/chunk -> 5 chunks.
-    sentences = " ".join(
-        " ".join(f"w{i}" for _ in range(10)) + "." for i in range(10)
-    )
+    sentences = " ".join(" ".join(f"w{i}" for _ in range(10)) + "." for i in range(10))
     chunks = chunk_pages([_page(1, sentences)], chunk_tokens=25, chunk_overlap=0)
     assert len(chunks) == 5
 

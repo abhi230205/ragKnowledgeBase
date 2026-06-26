@@ -99,9 +99,7 @@ class DriveClient:
         creds = _load_credentials(service_account_path, service_account_info)
         try:
             # cache_discovery=False avoids a noisy file-cache warning in containers.
-            self._service = build(
-                "drive", "v3", credentials=creds, cache_discovery=False
-            )
+            self._service = build("drive", "v3", credentials=creds, cache_discovery=False)
         except Exception as exc:  # pragma: no cover - defensive
             raise DriveAuthError(f"Failed to initialise Drive client: {exc}") from exc
 
@@ -143,10 +141,7 @@ class DriveClient:
             f"'{folder_id}' in parents and trashed = false and "
             f"(mimeType = '{PDF_MIME}' or mimeType = '{FOLDER_MIME}')"
         )
-        fields = (
-            "nextPageToken, "
-            "files(id, name, mimeType, md5Checksum, modifiedTime, size)"
-        )
+        fields = "nextPageToken, files(id, name, mimeType, md5Checksum, modifiedTime, size)"
         children: list[DriveFile] = []
         page_token: str | None = None
         try:
@@ -163,9 +158,7 @@ class DriveClient:
                     )
                     .execute()
                 )
-                children.extend(
-                    DriveFile.from_api(d) for d in resp.get("files", [])
-                )
+                children.extend(DriveFile.from_api(d) for d in resp.get("files", []))
                 page_token = resp.get("nextPageToken")
                 if not page_token:
                     break
@@ -176,9 +169,7 @@ class DriveClient:
     def download_bytes(self, file_id: str) -> bytes:
         """Download a file's raw bytes via files.get_media."""
         try:
-            request = self._service.files().get_media(
-                fileId=file_id, supportsAllDrives=True
-            )
+            request = self._service.files().get_media(fileId=file_id, supportsAllDrives=True)
             buffer = io.BytesIO()
             downloader = MediaIoBaseDownload(buffer, request)
             done = False

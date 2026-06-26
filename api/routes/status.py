@@ -9,10 +9,9 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter
-
 from db import crud
 from db.session import get_session
+from fastapi import APIRouter
 from ingestion.scheduler import get_state
 from vectorstore import chroma_store
 

@@ -10,7 +10,6 @@ from __future__ import annotations
 import uuid
 
 import chromadb
-
 from embeddings import embedder
 from ingestion.chunker import Chunk
 from vectorstore import chroma_store
@@ -42,9 +41,9 @@ def test_retrieval_returns_relevant_chunk():
     q = embedder.embed_query("What is the refund window for returns?")
     results = chroma_store.query(coll, q, top_k=3)
 
-    assert results[0]["chunk_index"] == 0          # refund chunk ranks first
+    assert results[0]["chunk_index"] == 0  # refund chunk ranks first
     assert results[0]["file_name"] == "policy.pdf"
-    assert 0.0 <= results[0]["score"] <= 1.0001     # cosine score = 1 - distance
+    assert 0.0 <= results[0]["score"] <= 1.0001  # cosine score = 1 - distance
 
 
 def test_topk_and_file_filter():
@@ -55,10 +54,10 @@ def test_topk_and_file_filter():
     chroma_store.add_chunks(coll, "B", "b.pdf", b, embedder.embed_texts([b[0].text]))
 
     q = embedder.embed_query("animals")
-    assert len(chroma_store.query(coll, q, top_k=1)) == 1          # respects top_k
+    assert len(chroma_store.query(coll, q, top_k=1)) == 1  # respects top_k
 
     scoped = chroma_store.query(coll, q, top_k=5, where={"file_id": "B"})
-    assert scoped and all(r["file_id"] == "B" for r in scoped)     # filter works
+    assert scoped and all(r["file_id"] == "B" for r in scoped)  # filter works
 
 
 def test_delete_file_removes_chunks():

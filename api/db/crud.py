@@ -22,6 +22,7 @@ def _utcnow() -> datetime:
 
 # ---------------------------------------------------------------- config
 
+
 def get_or_create_config(session: Session) -> Config:
     """Return the singleton config row (id=1), creating it if absent."""
     cfg = session.get(Config, 1)
@@ -55,6 +56,7 @@ def get_service_account_info(cfg: Config) -> dict | None:
 
 
 # ---------------------------------------------------------------- files
+
 
 def list_files(session: Session) -> list[FileRecord]:
     return list(session.scalars(select(FileRecord)).all())
