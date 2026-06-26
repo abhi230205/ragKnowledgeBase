@@ -17,6 +17,7 @@ service_account*.json
 *.sqlite
 *.sqlite3
 data/
+.debug/
 
 # ---- python ----
 __pycache__/

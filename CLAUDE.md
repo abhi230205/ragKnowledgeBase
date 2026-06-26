@@ -108,6 +108,22 @@ settings`) — NOT prefixed with `api.`. Tests run from `api/` (`pytest.ini` set
 - **Phase 5 (Day 4):** Streamlit Settings + Dashboard + streaming chat with citations.
 - **Phase 6 (Day 5):** edge-case sweep, ≥10 tests, README (6 sections + diagram), demo.
 
+## Tooling (Claude Code: skills · agents · hooks · MCP)
+- **Hooks** (`.claude/settings.json`): `secret_scan.py` (PreToolUse on `git commit` —
+  blocks staged keys/creds, the −20 pitfall) and `ruff_format.py` (PostToolUse on
+  Write|Edit — formats `.py` on save). Host needs `ruff` (`pip install ruff`; invoked
+  as `python -m ruff`). Lint/format config in `ruff.toml`.
+- **Custom skills** (`.claude/skills/`): `/rag-eval` (retrieval hit-rate@k / MRR over
+  `/search`), `/chunk-inspect` (how a PDF chunks — drives `api/scripts/chunk_inspect.py`).
+- **Custom agents** (`.claude/agents/`): `prompt-engineer` (Phase 4 grounding prompt),
+  `rag-evaluator` (retrieval tuning), `edge-case-hunter` (Phase 6 adversarial sweep).
+- **Built-in skills to use per phase:** `/code-review` (each phase), `/verify` + `/run`
+  (after wiring routes/UI), `/security-review` (before final commit — secrets/masking).
+- **MCP servers:** `playwright` (drive/screenshot the UI + demo), `sqlite` (inspect the
+  config/files tables — reads a host snapshot at `.debug/rag.db`; refresh with
+  `docker compose cp rag-api:/data/app/rag.db ./.debug/rag.db`), `claude.ai Google Drive`
+  (seed/inspect a test corpus). MCP tools load at session start.
+
 ## Commit discipline
 Atomic, descriptive commits at each logical milestone (the rubric grades commit
 history). `.gitignore` was created before the first commit so secrets are never
