@@ -1,0 +1,48 @@
+# ---- secrets / credentials (NEVER commit) ----
+.env
+.env.*
+!.env.example
+secrets/*
+!secrets/.gitkeep
+service_account*.json
+*credentials*.json
+*.key
+*.pem
+
+# ---- local Claude Code settings (personal) ----
+.claude/settings.local.json
+
+# ---- databases / local state ----
+*.db
+*.sqlite
+*.sqlite3
+data/
+
+# ---- python ----
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# ---- ML / model cache (if ever materialised on host) ----
+hf/
+st/
+models/
+.cache/
+
+# ---- OS / editor junk ----
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*~

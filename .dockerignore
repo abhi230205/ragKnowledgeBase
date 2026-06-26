@@ -1,0 +1,17 @@
+# NOTE: docker-compose builds per-service contexts (build: ./api, build: ./ui),
+# so this ROOT file is NOT consulted by those builds. The authoritative ignores
+# are api/.dockerignore and ui/.dockerignore (kept in sync with the rules below).
+# This file only applies if something ever builds from the repo root.
+.git/
+.gitignore
+.env
+.env.*
+secrets/
+docs/
+*.md
+*.pdf
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+data/

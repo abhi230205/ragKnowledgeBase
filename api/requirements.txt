@@ -1,0 +1,35 @@
+# Web / API
+fastapi
+uvicorn[standard]
+pydantic
+pydantic-settings
+python-multipart
+httpx
+sse-starlette
+
+# Persistent store (config + sync state)
+sqlalchemy
+
+# Google Drive (v3, service account)
+google-api-python-client
+google-auth
+google-auth-httplib2
+
+# Vector store (embedded)
+chromadb
+
+# Embeddings (local, open-source). torch is installed separately (CPU build) in the Dockerfile.
+sentence-transformers
+
+# PDF parsing
+pymupdf
+pdfplumber
+
+# LLM (chat)
+anthropic
+
+# Ingestion scheduling (in-process)
+apscheduler
+
+# Tests
+pytest

@@ -1,0 +1,16 @@
+# `build: ./ui` means THIS file (not the root .dockerignore) governs the ui
+# build context — so secret/state patterns must be excluded here too.
+.env
+.env.*
+secrets/
+*.db
+*.sqlite*
+service_account*.json
+*credentials*.json
+*.key
+*.pem
+
+# caches
+__pycache__/
+*.pyc
+.venv/

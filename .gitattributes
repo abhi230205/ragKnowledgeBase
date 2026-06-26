@@ -1,0 +1,8 @@
+# Normalise line endings to LF — everything runs in Linux containers.
+* text=auto eol=lf
+
+# Treat binaries as binary (no EOL conversion)
+*.pdf binary
+*.png binary
+*.jpg binary
+*.ico binary

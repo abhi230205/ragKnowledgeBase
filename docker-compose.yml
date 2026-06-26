@@ -1,0 +1,54 @@
+# RAG Knowledge Base — two services, one network, named volumes for persistence.
+#   api : FastAPI + Uvicorn. Also runs (in-process) the APScheduler ingestion job,
+#         the sentence-transformers embedder, embedded ChromaDB, and SQLite.
+#   ui  : Streamlit browser UI that calls the API over HTTP (chat via SSE).
+# Only manual setup step: copy .env.example -> .env and fill it in.
+
+services:
+  api:
+    build: ./api
+    container_name: rag-api
+    env_file: .env
+    environment:
+      # Persist HF / sentence-transformers model cache on the app-data volume
+      - HF_HOME=/data/app/hf
+      - SENTENCE_TRANSFORMERS_HOME=/data/app/st
+    ports:
+      - "8000:8000"
+    volumes:
+      - chroma-data:/data/chroma        # embedded Chroma PersistentClient path
+      - app-data:/data/app              # SQLite db + model cache + uploaded creds
+      - ./secrets:/secrets:ro           # optional file-based service account (gitignored)
+    networks:
+      - rag-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+
+  ui:
+    build: ./ui
+    container_name: rag-ui
+    env_file: .env
+    environment:
+      - API_URL=http://api:8000         # reach the API by service name on the bridge net
+    ports:
+      - "8501:8501"
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - rag-net
+    restart: unless-stopped
+
+volumes:
+  chroma-data:                          # vector store persists across restarts
+  app-data:                             # config DB + model cache + secrets
+
+networks:
+  rag-net:
+    driver: bridge

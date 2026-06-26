@@ -1,0 +1,20 @@
+# `build: ./api` means THIS file (not the root .dockerignore) governs the api
+# build context — so secret/credential patterns must be excluded here too.
+.env
+.env.*
+secrets/
+service_account*.json
+*credentials*.json
+*.key
+*.pem
+
+# caches / local state
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.db
+*.sqlite*
+.venv/
