@@ -64,3 +64,19 @@ class FileRecord(Base):
     status: Mapped[str] = mapped_column(String, default="pending")
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     last_synced: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class ChatMessage(Base):
+    """A single turn in a chat session (multi-turn history, keyed by session_id).
+
+    Stores the raw Q/A text only — retrieved chunks are NOT re-stored per turn;
+    we re-retrieve fresh context each turn (see prompt_builder / §7 of the plan).
+    """
+
+    __tablename__ = "chat_messages"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    session_id: Mapped[str] = mapped_column(String, index=True)
+    role: Mapped[str] = mapped_column(String)  # "user" | "assistant"
+    content: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)

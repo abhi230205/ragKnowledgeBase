@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from db.models import Config, FileRecord
+from db.models import ChatMessage, Config, FileRecord
 
 
 def _utcnow() -> datetime:
@@ -154,3 +154,27 @@ def status_summary(session: Session) -> dict:
             for f in files
         ],
     }
+
+
+# ---------------------------------------------------------------- chat
+
+
+def add_message(session: Session, session_id: str, role: str, content: str) -> None:
+    """Append a chat turn (role = 'user' | 'assistant'). Commits."""
+    session.add(ChatMessage(session_id=session_id, role=role, content=content))
+    session.commit()
+
+
+def get_history(session: Session, session_id: str, max_messages: int = 12) -> list[dict]:
+    """Return the most recent messages for a session, oldest-first.
+
+    `max_messages` bounds the window (≈ max_history_turns * 2). Returns a list of
+    {"role", "content"} dicts ready for the Anthropic messages array.
+    """
+    rows = session.scalars(
+        select(ChatMessage)
+        .where(ChatMessage.session_id == session_id)
+        .order_by(ChatMessage.id.desc())
+        .limit(max_messages)
+    ).all()
+    return [{"role": r.role, "content": r.content} for r in reversed(rows)]
