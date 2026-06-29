@@ -30,7 +30,6 @@ class ConfigUpdate(BaseModel):
     anthropic_api_key: Optional[str] = None
     service_account_json: Optional[str] = None
     chat_model: Optional[str] = None
-    embedding_model: Optional[str] = None
     top_k: Optional[int] = None
 
 
@@ -48,7 +47,8 @@ def _view(cfg) -> dict:
     has_sa = bool(cfg.service_account_json) or os.path.exists(settings.google_service_account_path)
     return {
         "drive_folder_id": cfg.drive_folder_id or settings.drive_folder_id,
-        "embedding_model": cfg.embedding_model,
+        # Embedding model is env-authoritative (changing it forces a re-index at sync).
+        "embedding_model": settings.embedding_model,
         "chat_model": cfg.chat_model,
         "top_k": cfg.top_k,
         "anthropic_key": _mask(effective_key),
@@ -77,8 +77,6 @@ def save_config(body: ConfigUpdate) -> dict:
         fields["drive_folder_id"] = body.drive_folder_id.strip()
     if body.chat_model:
         fields["chat_model"] = body.chat_model.strip()
-    if body.embedding_model:
-        fields["embedding_model"] = body.embedding_model.strip()
     if body.top_k is not None:
         if body.top_k <= 0:
             raise HTTPException(status_code=422, detail="top_k must be a positive integer")

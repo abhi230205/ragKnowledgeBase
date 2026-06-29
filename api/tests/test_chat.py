@@ -90,7 +90,7 @@ def test_stream_no_context_path():
 
 
 def test_stream_with_context_mocked(monkeypatch):
-    async def fake_tokens(api_key, model, system, messages):
+    async def fake_tokens(api_key, model, system, messages, meta=None):
         for t in ["Refunds ", "are issued within 14 days [1]."]:
             yield t
 
@@ -201,3 +201,64 @@ def test_retrieve_below_threshold_returns_empty(monkeypatch):
     monkeypatch.setattr(chat_route.chroma_store, "get_collection", lambda *a, **k: coll)
     monkeypatch.setattr(chat_route.settings, "relevance_threshold", 0.99)
     assert chat_route._retrieve("what is the refund window?", 5) == []
+
+
+# ----------------------------------------------- Phase-6 hardening regressions
+
+_CHUNK = {
+    "document": "Refunds within 14 days.",
+    "file_name": "policy.pdf",
+    "start_page": 4,
+    "end_page": 4,
+    "chunk_index": 11,
+}
+
+
+def test_stream_midstream_error_still_emits_citations_and_done(monkeypatch):
+    async def boom(api_key, model, system, messages, meta=None):
+        yield "Partial answer [1]"
+        raise RuntimeError("connection dropped")
+
+    monkeypatch.setattr(claude_stream, "_stream_claude_tokens", boom)
+    events = _events(_collect(claude_stream.stream_answer("", "q", [_CHUNK], [], api_key="k")))
+    kinds = [e for e, _ in events]
+    assert "citations" in kinds and kinds[-1] == "done"  # citations survive a mid-stream error
+    assert any(k == "error" for k in kinds)
+    assert events[-1][1].get("interrupted") is True
+
+
+def test_stream_empty_completion_falls_back(monkeypatch):
+    async def empty(api_key, model, system, messages, meta=None):
+        return
+        yield  # pragma: no cover - makes this an async generator
+
+    monkeypatch.setattr(claude_stream, "_stream_claude_tokens", empty)
+    events = _events(_collect(claude_stream.stream_answer("", "q", [_CHUNK], [], api_key="k")))
+    # No empty bubble with sources: a fallback token + EMPTY citations.
+    assert events[0][0] == "token" and events[0][1]["text"] == claude_stream.EMPTY_ANSWER_MESSAGE
+    citations = next(d for k, d in events if k == "citations")
+    assert citations == []
+
+
+def test_build_messages_trims_to_token_budget(monkeypatch):
+    monkeypatch.setattr(prompt_builder.settings, "max_context_tokens", 200)
+    big = "word " * 400  # ~2000 chars -> ~500 approx tokens, over the 200 budget
+    history = []
+    for i in range(6):
+        history.append({"role": "user", "content": f"q{i} {big}"})
+        history.append({"role": "assistant", "content": f"a{i} {big}"})
+    _, messages, _ = prompt_builder.build_messages("current question?", [_CHUNK], history)
+    # Trimmed (not all 12 history turns survive), still valid + current turn kept.
+    assert len(messages) < 13
+    assert messages[0]["role"] == "user"
+    assert messages[-1]["role"] == "user" and "current question?" in messages[-1]["content"]
+
+
+def test_chat_retrieval_failure_streams_error_not_500(monkeypatch):
+    def boom(*a, **k):
+        raise RuntimeError("chroma down")
+
+    monkeypatch.setattr(chat_route, "_retrieve", boom)
+    r = client.post("/chat", json={"session_id": "err1", "message": "hello"})
+    assert r.status_code == 200  # graceful SSE, not a 500
+    assert "Could not search the knowledge base" in r.text

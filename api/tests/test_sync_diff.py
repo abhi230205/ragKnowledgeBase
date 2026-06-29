@@ -46,3 +46,22 @@ def test_compute_diff_empty_drive_all_deleted():
     diff = compute_diff([], tracked)
     assert diff.deleted == ["x"]
     assert diff.added == diff.modified == diff.renamed == diff.unchanged == []
+
+
+def _fm(id, name, md5, mt):
+    return SimpleNamespace(id=id, name=name, md5_checksum=md5, modified_time=mt)
+
+
+def test_modifiedtime_fallback_when_md5_absent():
+    # md5 missing on both sides -> fall back to modifiedTime.
+    tracked = {
+        "edited": {"md5_checksum": None, "file_name": "e.pdf", "modified_time": "t1"},
+        "same": {"md5_checksum": None, "file_name": "s.pdf", "modified_time": "t1"},
+    }
+    drive = [
+        _fm("edited", "e.pdf", None, "t2"),  # modifiedTime changed -> modified
+        _fm("same", "s.pdf", None, "t1"),  # modifiedTime same -> unchanged
+    ]
+    diff = compute_diff(drive, tracked)
+    assert [f.id for f in diff.modified] == ["edited"]
+    assert [f.id for f in diff.unchanged] == ["same"]

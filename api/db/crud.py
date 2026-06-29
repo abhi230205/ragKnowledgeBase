@@ -63,9 +63,13 @@ def list_files(session: Session) -> list[FileRecord]:
 
 
 def get_tracked(session: Session) -> dict[str, dict]:
-    """Build the {file_id: {md5_checksum, file_name}} map for sync_diff."""
+    """Build the {file_id: {md5_checksum, file_name, modified_time}} map for sync_diff."""
     return {
-        r.file_id: {"md5_checksum": r.md5_checksum, "file_name": r.file_name}
+        r.file_id: {
+            "md5_checksum": r.md5_checksum,
+            "file_name": r.file_name,
+            "modified_time": r.modified_time,
+        }
         for r in list_files(session)
     }
 

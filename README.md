@@ -1,84 +1,218 @@
 # RAG Knowledge Base — Google Drive + Claude
 
-A Retrieval-Augmented Generation system that ingests PDFs from a Google Drive
-folder, embeds them into an open-source vector store, and answers questions over
-them in a streaming chat with citations.
+A production-quality Retrieval-Augmented Generation system. It ingests PDFs from a
+Google Drive folder, embeds them into an open-source vector store, and answers
+questions in a **streaming chat that is grounded only in the retrieved documents,
+with citations** (document + page) and an honest "not in the knowledge base"
+fallback.
 
-> **Status:** Day 1 scaffold. The ingestion pipeline, retrieval, chat, and UI are
-> built out across Phases 2–6 — see [the build plan](docs/RAG_Build_Plan_Full.md).
+- **API:** http://localhost:8000 — `/docs` for the OpenAPI UI
+- **UI:** http://localhost:8501 — Settings · Dashboard · Chat
 
 ---
 
 ## 1. Architecture overview
 
-Two containers, modular code inside the API:
+Five logical services. To keep a solo build lean, two of them are **co-located in
+the API process** (the ingestion worker runs as an in-process APScheduler job, and
+ChromaDB runs **embedded** as a library on a mounted volume) — the brief explicitly
+allows this, and the code stays modular so separation of concerns is real. There
+are two containers: **`api`** and **`ui`**.
 
-- **`api`** (FastAPI + Uvicorn) — REST + SSE endpoints; also runs, in-process: the
-  APScheduler ingestion job, the sentence-transformers embedder, **embedded
-  ChromaDB** (`PersistentClient` on a volume), and SQLite (config + sync state).
-- **`ui`** (Streamlit) — settings, sync dashboard, and streaming chat; calls the
-  API over HTTP (chat tokens via SSE → `st.write_stream`).
+```mermaid
+flowchart TD
+    subgraph Browser["Frontend — Streamlit (ui container)"]
+        UI["Settings · Dashboard · Chat + citations"]
+    end
 
+    subgraph API["API — FastAPI + Uvicorn (api container)"]
+        ROUTES["routes: /health /config /sync /search /chat /status"]
+        ING["Ingestion (APScheduler background job)"]
+        EMB["Embedder — sentence-transformers (in-process)"]
+        RET["Retrieval"]
+        CHAT["Chat orchestration + prompt builder"]
+        CHROMA[("ChromaDB — embedded client, on a volume")]
+    end
+
+    SQLITE[("SQLite — config + files + chat history (volume)")]
+    DRIVE["Google Drive API v3"]
+    CLAUDE["Anthropic Messages API"]
+
+    UI -- "HTTP/REST + JSON (config, sync, status, search)" --> ROUTES
+    UI -- "HTTP + SSE (chat tokens)" --> CHAT
+    ROUTES --> ING
+    ROUTES --> RET
+    ROUTES --> CHAT
+    ING -- "HTTPS/REST (service account)" --> DRIVE
+    ING -- "in-process call" --> EMB
+    ING -- "in-process call (embedded)" --> CHROMA
+    RET -- "in-process call" --> EMB
+    RET -- "in-process call (embedded)" --> CHROMA
+    CHAT -- "in-process call" --> RET
+    CHAT -- "HTTPS + SSE (streaming)" --> CLAUDE
+    ROUTES -- "in-process file I/O (SQLAlchemy)" --> SQLITE
+    ING -- "in-process file I/O" --> SQLITE
 ```
-Google Drive ──HTTPS──> Ingestion ──in-proc──> Embedder ──in-proc──> ChromaDB
-                                                                        │
-Streamlit UI ──HTTP/REST + SSE──> FastAPI API ──in-proc──> Retrieval ──┘
-                                       │
-                                       └──HTTPS+SSE──> Anthropic Messages API
-SQLite (config + sync state) <──in-proc file I/O── FastAPI API
-```
 
-> A protocol-labelled diagram (mermaid) is in [docs/RAG_Build_Plan_Full.md](docs/RAG_Build_Plan_Full.md) §1 and will be inlined here.
+**Protocols:** UI↔API is HTTP/REST + JSON, except chat which is **SSE**
+(`text/event-stream`). API→Drive is HTTPS/REST (service account). API→Anthropic is
+HTTPS + SSE streaming. The embedder, embedded Chroma, and SQLite are **direct
+in-process library calls** (no network hop) — the cheapest correct option since
+none needs to be independently scaled here.
+
+**End-to-end flow:** PDFs in a Drive folder → ingestion pulls them over HTTPS →
+PyMuPDF extracts text per page → a token-aware overlapping chunker splits it →
+sentence-transformers embeds each chunk → chunks + metadata go into ChromaDB → a
+question is embedded the same way → top-k chunks come back → they're wrapped in a
+grounding prompt → Claude streams an answer → tokens are re-streamed to the UI over
+SSE with a citation list.
+
+### Layout
+```
+api/   FastAPI; also runs ingestion + embedder + embedded Chroma + SQLite
+  main.py · config.py
+  routes/       health · config · sync · search · chat · status
+  ingestion/    drive_client · pdf_parser · chunker · sync_diff · pipeline · scheduler
+  embeddings/   embedder (sentence-transformers)
+  vectorstore/  chroma_store (embedded PersistentClient, cosine)
+  llm/          prompt_builder · claude_stream (Messages API streaming)
+  db/           models (Config · FileRecord · ChatMessage) · session · crud
+  tests/        40 tests
+  scripts/      chunk_inspect.py
+ui/    streamlit_app.py (Settings · Dashboard · Chat)
+```
 
 ## 2. Technology choices and justification
 
-| Area | Choice | One-line why |
-|---|---|---|
-| Vector DB | **ChromaDB**, embedded | Lowest-friction open-source store with metadata filtering; no extra container. |
-| Embeddings | **sentence-transformers** `all-MiniLM-L6-v2` (384-d) | Free, local, open-source; Claude has no embeddings endpoint. |
-| Chunking | **sentence-aware sliding window**, ~800 tok / ~15% overlap, page-tracked | Overlap preserves cross-boundary context; pages enable citations. |
-| Frontend | **Streamlit** | Full Python UI fast; the points are in the backend. |
-| PDF | **PyMuPDF** (+ pdfplumber for tables) | Fastest, good multi-column handling. |
-| Chat | **claude-sonnet-4-6**, streamed (SSE) | Required; SSE is the right fit for one-way token streaming. |
+**Vector DB — ChromaDB, embedded.** It's the lowest-friction open-source store
+that does everything required: stores embeddings *with* arbitrary metadata,
+supports `where` metadata filtering, persists to disk, and has a clean Python
+client. Running it **embedded** (`chromadb.PersistentClient(path=…)`) means no extra
+container and no network hop, while a mounted volume keeps data across restarts.
+Cosine space is used so relevance score = `1 - distance`. *(Qdrant or Chroma server
+mode are the scale-up answers; see §5.)*
 
-_(Full one-paragraph justifications per the rubric land here in Phase 6.)_
+**Embedding model — local `sentence-transformers` `all-MiniLM-L6-v2` (384-dim).**
+Free, runs entirely in-container with no external dependency or rate limit, and is
+fully aligned with "open-source only." **Claude is not an embedding model** — Anthropic
+exposes no embeddings endpoint — so embeddings are computed locally (Voyage AI is the
+paid alternative, exposed as a future option). The same model is used for indexing
+and querying (a hard invariant; changing it requires a full re-index).
 
-## 3. Setup instructions
+**Chunking — token-aware sentence-window with overlap, page-tracked.** Text is split
+into sentences and packed into windows measured in the **embedding model's own
+tokens**, with ~15% overlap, snapping to sentence boundaries and tracking
+`start_page`/`end_page`. Size is **clamped to the model's max (256 for MiniLM)** —
+larger chunks would be silently truncated by the model before embedding, dropping
+each chunk's tail. Overlap is mandatory so a sentence straddling a boundary appears
+whole in at least one chunk. Both size and overlap are configurable
+(`chunk_tokens`, `chunk_overlap`) and a larger-context model raises the effective
+size automatically.
 
-1. **Google service account:** create one in Google Cloud, enable the Drive API,
-   download the JSON key, and **share the target Drive folder with the service
-   account's email**. Either drop the JSON at `./secrets/service_account.json`
-   (gitignored) or upload it in the Settings UI.
-2. **Environment:** `cp .env.example .env` and fill in values (or set them via the
-   UI). Real secrets never go in git — only `.env.example` (placeholders) is tracked.
-3. **Run:** `docker compose up --build`.
-   - API: http://localhost:8000 (`/health`, `/docs`)
-   - UI: http://localhost:8501
+**Frontend — Streamlit.** The entire UI (settings, live sync dashboard, streaming
+chat with citations) is pure Python with no second build system, no separate
+frontend container, and no CORS. It consumes the FastAPI endpoints over HTTP and
+reads the `/chat` SSE stream into `st.write_stream` for token-by-token output, so
+the required "API consumed by the UI" separation holds.
 
-## 4. How to use the system
+*(Also: FastAPI + Uvicorn for async I/O and clean SSE; SQLite via SQLAlchemy for
+config/sync-state/chat-history, separate from the vector store; APScheduler for
+in-process background ingestion; SSE over WebSocket because token streaming is
+one-directional.)*
 
-1. Open the UI, go to **Settings**: enter the Drive folder id, Anthropic key, and
-   service-account JSON; pick the embedding model and top-k.
-2. **Dashboard:** trigger **Sync** and watch status (documents, chunks, last sync).
-3. **Chat:** ask questions; answers stream token-by-token with source + page
-   citations. _(Built in Phases 2–5.)_
+## 3. Setup
 
-## 5. Known limitations / what I'd do differently
+**Prerequisites:** Docker Desktop. A Google Cloud **service account** with the Drive
+API enabled, and a Drive folder of PDFs **shared with the service account's email**.
+An Anthropic API key.
 
-- Embedded Chroma & co-located ingestion favour a 5-day timeline over strict
-  service isolation — Chroma server mode / Qdrant and Celery are the scale-up paths.
-- Scanned/image-only PDFs are flagged (OCR via Tesseract is a possible add-on).
-- _(Expanded in Phase 6.)_
+1. **Service account:** in Google Cloud, create a service account, enable the **Google
+   Drive API**, create a JSON key, and **share your Drive folder with the service
+   account's `client_email`** (Viewer is enough).
+2. **Environment:** `cp .env.example .env`. You can set `ANTHROPIC_API_KEY` here, or
+   enter it in the UI. Real secrets never go in git — only `.env.example`
+   (placeholders) is tracked.
+3. **Run:** `docker compose up --build` (first build is slow — it pulls torch +
+   chromadb).
+4. **Configure (in the UI, http://localhost:8501 → Settings):** paste the Drive
+   **folder ID**, upload the **service-account JSON**, set the **Anthropic key** and
+   **top-k**, and Save. Secrets are stored server-side (SQLite) and shown masked.
+
+Credentials can alternatively be provided via files: drop the JSON at
+`./secrets/service_account.json` (gitignored) and set `DRIVE_FOLDER_ID` in `.env`.
+
+## 4. How to use
+
+1. **Settings** — set the Drive folder ID, service-account JSON, Anthropic key, top-k.
+2. **Dashboard** — click **Sync now**; watch live status (documents, chunks, last
+   sync, per-file errors). Re-syncing skips unchanged files; editing a file
+   re-embeds only it; deleting removes its chunks.
+3. **Chat** — ask a question. The answer streams token-by-token, grounded only in
+   your documents, with a **Sources** panel mapping each `[n]` marker to its document
+   and page. Out-of-corpus questions get an honest "not in the knowledge base"
+   reply. Conversations are multi-turn within a session.
+
+A `/search` endpoint is available independently for testing retrieval
+(`POST /search {"query": "...", "top_k": 5}`).
+
+## 5. Known limitations & what I'd do differently
+
+- **Embedding model isn't hot-swappable** — changing it requires a full re-index
+  (different vector space/dimension). It's stored in config and used by the pipeline,
+  but switching needs a manual reset. A guided "change model → re-index" flow is the
+  improvement.
+- **Scanned / image-only PDFs** are detected and flagged `no_extractable_text` (sync
+  continues) but not OCR'd. Adding Tesseract (`pytesseract`) would ingest them.
+- **No re-ranking layer** — a cross-encoder re-rank after top-k would lift retrieval
+  quality (a named bonus).
+- **Service-account auth only** — OAuth 2.0 user flow is a bonus not implemented.
+- **PDF only** — DOCX support (`python-docx`) behind the same pipeline is a bonus.
+- **In-process APScheduler** — no durable task queue; a crash mid-sync loses
+  in-flight job state. Per-file state is persisted, so a re-run resumes cleanly;
+  Celery + Redis is the scale-up.
+- **SQLite single-writer** — fine here; Postgres/pgvector is the consolidation play.
+- **More time:** Qdrant or Chroma-server for stricter service boundaries and scale,
+  a streaming sync-progress bar (reusing the SSE plumbing), and a query-rewrite step
+  for multi-turn retrieval.
 
 ## 6. Reflection on Claude Code
 
-_(Filled in throughout: which interactions saved the most time, which suggestions
-were wrong and why, and lessons on effective prompting.)_
+**Where it helped most.** Scaffolding the modular two-container project and the
+ingestion pipeline was fast and accurate. The biggest wins came from **multi-agent
+review**: an adversarial review of the Day-1 scaffold caught per-service
+`.dockerignore` gaps that could have leaked secrets, and the Phase-4 review caught a
+real multi-turn bug (a windowed chat history could start with an `assistant` turn
+and be rejected by the Messages API). A dedicated **prompt-engineer agent** hardened
+the grounding prompt (untrusted-context framing, exact refusal, conflicting-source
+handling). Custom tooling paid off: a secret-scan pre-commit hook, ruff format-on-
+save, a `/chunk-inspect` tool, and the Playwright + SQLite MCPs for verifying the UI
+and inspecting state.
+
+**Where it fell short / suggestions that were wrong.** It needed a human decision on
+the chunk-size-vs-model conflict (the plan's ~800-token chunks would be silently
+truncated by MiniLM's 256-token limit — we sized chunks to the model instead). A
+first attempt at a chat test made a *real* Anthropic call because the empty key fell
+back to the env key — it had to be reworked to force the no-key path. Environment
+friction surfaced too: `chromadb.EphemeralClient()` is a process singleton (tests had
+to use unique collection names), and Git Bash mangled `/tmp` paths into Windows
+paths. Lesson: treat generated code and "looks done" claims as hypotheses — run it,
+test it, and adversarially review it before trusting it.
 
 ---
 
 ## Tests
 
 ```bash
-docker compose run --rm api pytest      # or, in a local venv from ./api: pytest
+docker compose run --rm api pytest          # or, in a venv from ./api: pytest
 ```
+40 tests cover chunking (count/overlap/size/page-spans/short/empty), embedding
+(dimension/determinism/batch), retrieval (relevance/top-k/filter/delete), the sync
+diff, `/search`, `/chat` (prompt builder, citations, no-context guard, SSE shape,
+history sanitizer, threshold guard), and `/config` (masking, validation).
+
+## Tooling (Claude Code)
+
+Hooks (secret-scan on commit, ruff format-on-save), custom skills (`/rag-eval`,
+`/chunk-inspect`), custom agents (`prompt-engineer`, `rag-evaluator`,
+`edge-case-hunter`), and MCP servers (Playwright, SQLite, Google Drive). See
+`CLAUDE.md` for details.

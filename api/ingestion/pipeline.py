@@ -50,6 +50,21 @@ def run_sync(folder_id: str | None = None) -> dict:
             logger.warning("Drive listing failed: %s", exc)
             return {"status": "error", "error": str(exc)}
 
+        # Embedding-model guard: if the active model/dimension differs from what the
+        # collection was indexed with, reset it and re-embed everything (instead of a
+        # silent per-file dimension-mismatch error storm). Self-heals an env change.
+        reindexed = False
+        try:
+            reindexed = chroma_store.ensure_model(
+                chroma_store.get_client(), settings.embedding_model, embedder.dimension()
+            )
+        except Exception:  # pragma: no cover - guard must never break a sync
+            logger.exception("Embedding-model guard failed (continuing)")
+        if reindexed:
+            logger.warning("Embedding model changed -> reset collection, re-indexing all files")
+            for r in crud.list_files(session):
+                crud.delete_file(session, r.file_id)
+
         # Snapshot existing chunk counts once (for chunks_deleted accounting).
         prior_counts = {r.file_id: (r.chunk_count or 0) for r in crud.list_files(session)}
         tracked = crud.get_tracked(session)
@@ -58,6 +73,7 @@ def run_sync(folder_id: str | None = None) -> dict:
 
         counts = {
             "files_total": len(drive_files),
+            "reindexed": reindexed,
             "added": 0,
             "modified": 0,
             "deleted": 0,
@@ -92,6 +108,14 @@ def run_sync(folder_id: str | None = None) -> dict:
         # --- modified: delete old chunks first (no orphans), then re-process ---
         for f in diff.modified:
             try:
+                # Mark the row transitional (keep the OLD md5, 0 chunks, status=pending)
+                # BEFORE deleting chunks, so a crash between delete and re-embed leaves
+                # an honest, resumable state (next sync still re-detects 'modified')
+                # rather than "embedded" with chunks that no longer exist.
+                old_md5 = (tracked.get(f.id) or {}).get("md5_checksum")
+                crud.upsert_file(
+                    session, f.id, f.name, old_md5, f.modified_time, 0, status="pending"
+                )
                 chroma_store.delete_file(collection, f.id)
                 counts["chunks_deleted"] += prior_counts.get(f.id, 0)
                 if _process_file(session, collection, client, f, counts) is not None:
@@ -170,8 +194,15 @@ def _process_file(session, collection, client: DriveClient, f, counts) -> int | 
         counts["errors"].append({"file": f.name, "reason": "no_extractable_text"})
         return None
 
-    embeddings = embedder.embed_texts([c.text for c in chunks])
-    chroma_store.add_chunks(collection, f.id, f.name, chunks, embeddings)
+    # Embed + upsert in fixed-size slices so peak memory is bounded by the batch,
+    # not by the document size (very large PDF edge case).
+    batch = settings.embed_batch_chunks
+    for i in range(0, len(chunks), batch):
+        sl = chunks[i : i + batch]
+        vecs = embedder.embed_texts([c.text for c in sl])
+        chroma_store.add_chunks(collection, f.id, f.name, sl, vecs)
+        del vecs
+
     crud.upsert_file(
         session,
         f.id,

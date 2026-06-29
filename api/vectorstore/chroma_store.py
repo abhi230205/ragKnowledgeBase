@@ -139,3 +139,36 @@ def reset_collection(client=None) -> None:
     except Exception:  # pragma: no cover - collection may not exist yet
         pass
     get_collection(client)
+
+
+def _stamp(collection, model: str, dim: int) -> None:
+    try:
+        collection.modify(
+            metadata={"hnsw:space": "cosine", "embedding_model": model, "embedding_dim": dim}
+        )
+    except Exception:  # pragma: no cover - metadata stamp is best-effort
+        logger.warning("Could not stamp collection embedding metadata")
+
+
+def ensure_model(client, model: str, dim: int) -> bool:
+    """Ensure the collection matches the active embedding model/dimension.
+
+    Stamps the model + dim into the collection metadata. If a *different* model/dim
+    was previously recorded, the collection is reset (dropped + recreated) so the
+    corpus is re-embedded with the new model — instead of a silent per-file
+    dimension-mismatch error storm. Returns True iff a reset happened.
+    Call this at sync start (it does not load the model itself; the caller passes dim).
+    """
+    coll = get_collection(client)
+    meta = coll.metadata or {}
+    cur_model, cur_dim = meta.get("embedding_model"), meta.get("embedding_dim")
+
+    if cur_model == model and cur_dim == dim:
+        return False
+    if cur_model is None:  # not stamped yet (fresh / legacy) — stamp, no reset
+        _stamp(coll, model, dim)
+        return False
+    # A different model/dim was recorded -> reset and re-stamp.
+    reset_collection(client)
+    _stamp(get_collection(client), model, dim)
+    return True

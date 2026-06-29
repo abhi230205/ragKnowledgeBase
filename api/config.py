@@ -45,6 +45,11 @@ class Settings(BaseSettings):
 
     # ---- Chat / context-window management ----
     max_history_turns: int = 6
+    max_output_tokens: int = 1024  # Claude completion cap per answer
+    max_context_tokens: int = 150000  # input-token budget for history trimming
+
+    # ---- Ingestion batching ----
+    embed_batch_chunks: int = 512  # chunks per embed/upsert slice (bounds memory)
 
     # ---- Storage (inside container; on named volumes) ----
     chroma_path: str = "/data/chroma"

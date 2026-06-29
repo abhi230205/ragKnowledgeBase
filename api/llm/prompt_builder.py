@@ -14,6 +14,8 @@ The wording below is refined with the prompt-engineer agent.
 
 from __future__ import annotations
 
+from config import settings
+
 # Returned verbatim by the no-context guard (no Claude call) AND the exact refusal
 # the model must emit when the answer isn't in context. Interpolated into
 # SYSTEM_PROMPT below so the two strings can never drift apart.
@@ -117,5 +119,19 @@ def build_messages(question: str, chunks, history=None) -> tuple[str, list[dict]
     if messages and messages[-1]["role"] == "user":
         messages.pop()  # avoid two user turns in a row when we append the current one
     messages.append({"role": "user", "content": user_turn})
+
+    # Token-budget trim: drop oldest history turns until the request fits the
+    # context budget (cheap ~4-chars/token heuristic). The current user turn (the
+    # last message) is always kept; then re-ensure the sequence starts with a user
+    # turn so the Messages API stays happy.
+    def _approx(text: str) -> int:
+        return max(1, len(text) // 4)
+
+    budget = settings.max_context_tokens
+    total = _approx(SYSTEM_PROMPT) + sum(_approx(m["content"]) for m in messages)
+    while total > budget and len(messages) > 1:
+        total -= _approx(messages.pop(0)["content"])
+    while len(messages) > 1 and messages[0]["role"] == "assistant":
+        total -= _approx(messages.pop(0)["content"])
 
     return SYSTEM_PROMPT, messages, citations

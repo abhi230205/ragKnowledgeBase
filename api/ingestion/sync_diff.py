@@ -5,15 +5,33 @@ PURE function — no Drive, Chroma, or DB imports — so it unit-tests in isolat
 
 Detection (Drive ids are stable; md5_checksum changes when bytes change):
     added     : id in listing, not tracked
-    modified  : id tracked, md5_checksum differs            -> delete chunks + re-embed
-    renamed   : id tracked, md5 same, file_name differs      -> metadata update only
+    modified  : id tracked, content changed                  -> delete chunks + re-embed
+    renamed   : id tracked, content same, file_name differs  -> metadata update only
     deleted   : tracked id absent from listing               -> delete chunks
-    unchanged : id + md5 + name all match                    -> skip
+    unchanged : id + content + name all match                -> skip
+
+"Content changed" is md5_checksum inequality; when md5 is unavailable on either
+side (some Drive items expose no checksum), it falls back to modifiedTime.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+
+
+def _is_modified(rec: dict, f) -> bool:
+    """True if the file's content changed. md5 is primary; modifiedTime is the
+    fallback when md5 is missing on either side (None != None must not read as a
+    change, and a real edit must still be caught)."""
+    old_md5 = rec.get("md5_checksum")
+    new_md5 = getattr(f, "md5_checksum", None)
+    if old_md5 is not None and new_md5 is not None:
+        return old_md5 != new_md5
+    old_mt = rec.get("modified_time")
+    new_mt = getattr(f, "modified_time", None)
+    if old_mt is not None and new_mt is not None:
+        return old_mt != new_mt
+    return False  # can't tell -> treat as unchanged (rename/skip handles the rest)
 
 
 @dataclass
@@ -43,7 +61,7 @@ def compute_diff(drive_files, tracked: dict[str, dict]) -> SyncDiff:
         rec = tracked.get(f.id)
         if rec is None:
             diff.added.append(f)
-        elif rec.get("md5_checksum") != f.md5_checksum:
+        elif _is_modified(rec, f):
             diff.modified.append(f)
         elif rec.get("file_name") != f.name:
             diff.renamed.append(f)

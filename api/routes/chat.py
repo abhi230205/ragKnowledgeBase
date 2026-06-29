@@ -11,6 +11,7 @@ Response: text/event-stream
 
 from __future__ import annotations
 
+import logging
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException
@@ -24,6 +25,8 @@ from db.session import get_session
 from embeddings import embedder
 from llm import claude_stream
 from vectorstore import chroma_store
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["chat"])
 
@@ -57,7 +60,7 @@ async def chat(body: ChatRequest):
     if not (body.session_id or "").strip():
         raise HTTPException(status_code=422, detail="session_id is required")
 
-    # Resolve creds/model/top_k + history; record the user turn (before streaming).
+    # Resolve creds/model/top_k + load windowed history (BEFORE recording this turn).
     session = get_session()
     try:
         cfg = crud.get_or_create_config(session)
@@ -66,11 +69,25 @@ async def chat(body: ChatRequest):
         # Honor the request, then the UI-configured top_k, then the env default.
         top_k = body.top_k if (body.top_k and body.top_k > 0) else (cfg.top_k or settings.top_k)
         history = crud.get_history(session, body.session_id, settings.max_history_turns * 2)
-        crud.add_message(session, body.session_id, "user", question)
     finally:
         session.close()
 
-    chunks = await run_in_threadpool(_retrieve, question, top_k)
+    # Retrieve off the event loop. A failure here streams a graceful SSE error
+    # (never a 500) and records no user turn, so history stays consistent.
+    try:
+        chunks = await run_in_threadpool(_retrieve, question, top_k)
+    except Exception:
+        logger.exception("Retrieval failed for /chat")
+        return EventSourceResponse(
+            claude_stream.error_stream("Could not search the knowledge base. Please try again.")
+        )
+
+    # Record the user turn only after retrieval succeeds.
+    session = get_session()
+    try:
+        crud.add_message(session, body.session_id, "user", question)
+    finally:
+        session.close()
 
     generator = claude_stream.stream_answer(
         body.session_id, question, chunks, history, api_key=api_key, model=model
