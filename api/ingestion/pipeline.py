@@ -20,7 +20,7 @@ from embeddings import embedder
 from vectorstore import chroma_store
 
 from ingestion import chunker, pdf_parser
-from ingestion.drive_client import DriveAuthError, DriveClient, DriveError
+from ingestion.drive_client import DriveAuthError, DriveClient, DriveError, extract_folder_id
 from ingestion.sync_diff import compute_diff
 
 logger = logging.getLogger(__name__)
@@ -35,6 +35,7 @@ def run_sync(folder_id: str | None = None) -> dict:
         folder = folder_id or cfg.drive_folder_id or settings.drive_folder_id
         if not folder:
             return {"status": "error", "error": "No Drive folder id configured."}
+        folder = extract_folder_id(folder)  # tolerate a pasted folder URL
 
         info = crud.get_service_account_info(cfg)
         path = settings.google_service_account_path

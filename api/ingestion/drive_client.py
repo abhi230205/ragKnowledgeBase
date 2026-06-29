@@ -14,6 +14,7 @@ from __future__ import annotations
 import io
 import logging
 import os
+import re
 from dataclasses import dataclass
 
 from google.oauth2 import service_account
@@ -28,6 +29,24 @@ SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
 
 PDF_MIME = "application/pdf"
 FOLDER_MIME = "application/vnd.google-apps.folder"
+
+
+def extract_folder_id(value: str) -> str:
+    """Normalise a Drive folder reference to a bare folder id.
+
+    Accepts a bare id, a full folder URL (".../folders/<id>...") or an
+    "open?id=<id>" link — users naturally paste the URL from the address bar.
+    """
+    if not value:
+        return value
+    value = value.strip()
+    m = re.search(r"/folders/([A-Za-z0-9_-]+)", value)
+    if m:
+        return m.group(1)
+    m = re.search(r"[?&]id=([A-Za-z0-9_-]+)", value)
+    if m:
+        return m.group(1)
+    return value.strip("/")
 
 
 class DriveAuthError(Exception):

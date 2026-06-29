@@ -21,6 +21,7 @@ from pydantic import BaseModel
 from config import settings
 from db import crud
 from db.session import get_session
+from ingestion.drive_client import extract_folder_id
 
 router = APIRouter(prefix="/config", tags=["config"])
 
@@ -74,7 +75,8 @@ def save_config(body: ConfigUpdate) -> dict:
     fields: dict = {}
 
     if body.drive_folder_id is not None:
-        fields["drive_folder_id"] = body.drive_folder_id.strip()
+        # Accept a pasted folder URL and store just the id.
+        fields["drive_folder_id"] = extract_folder_id(body.drive_folder_id.strip())
     if body.chat_model:
         fields["chat_model"] = body.chat_model.strip()
     if body.top_k is not None:

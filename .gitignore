@@ -52,3 +52,9 @@ Thumbs.db
 .vscode/
 *.swp
 *~
+
+# local demo corpus (upload to Drive; not committed)
+sample_pdfs/
+
+drive_test_corpus/
+demo-*.png
