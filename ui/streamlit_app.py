@@ -257,27 +257,28 @@ def page_chat() -> None:
     if "messages" not in st.session_state:
         st.session_state.messages = []
 
-    # --- sync controls + last auto-sync (moved here from the Dashboard) ---
+    # --- sync controls (Sync now + refresh adjacent), last-sync line below ---
     state = sync_state()
-    sc = st.columns([1.3, 0.7, 3.2, 1.0])
+    sc = st.columns([1.2, 0.6, 3.2, 1.0])
     with sc[0]:
         if st.button("🔄 Sync now", type="primary"):
             trigger_sync()
     with sc[1]:
         st.button("↻", help="Refresh sync status")  # any click reruns the script
-    with sc[2]:
-        if state.get("running"):
-            st.caption("⏳ Sync in progress…")
-        else:
-            mins = state.get("auto_sync_minutes", 15)
-            st.caption(
-                f"🕒 Last auto-sync: {_relative(state.get('last_auto_sync'))} · every {mins} min"
-            )
     with sc[3]:
         if st.button("New chat"):
             st.session_state.session_id = "ui_" + uuid.uuid4().hex[:8]
             st.session_state.messages = []
             st.rerun()
+
+    # "Last sync" reflects the most recent completed sync — manual OR auto.
+    if state.get("running"):
+        st.caption("⏳ Sync in progress…")
+    else:
+        mins = state.get("auto_sync_minutes", 15)
+        st.caption(
+            f"🕒 Last sync: {_relative(state.get('finished_at'))} · auto-sync every {mins} min"
+        )
     st.caption(f"Session: `{st.session_state.session_id}`")
 
     for m in st.session_state.messages:
