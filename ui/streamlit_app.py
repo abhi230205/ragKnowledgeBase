@@ -50,6 +50,38 @@ def render_citations(cites: list[dict]) -> None:
             st.markdown(f"**[{c.get('id')}]** {c.get('file_name')} — {page_str}")
 
 
+def sync_state() -> dict:
+    """Fetch the live/last sync-job state (running flag, last auto-sync time, ...)."""
+    try:
+        return api_get("/sync/status").json()
+    except requests.RequestException:
+        return {}
+
+
+def _fmt_ts(iso: str | None) -> str:
+    """Render an ISO timestamp as 'YYYY-MM-DD HH:MM:SS UTC' (best-effort)."""
+    if not iso:
+        return "—"
+    return iso[:19].replace("T", " ") + " UTC"
+
+
+def trigger_sync() -> None:
+    """POST /sync and surface the outcome (202 started / 409 running / 422 unconfigured)."""
+    try:
+        r = api_post("/sync")
+    except requests.RequestException as exc:
+        st.error(f"Sync failed: {exc}")
+        return
+    if r.status_code == 202:
+        st.success(f"Sync started (job {r.json().get('job_id')}).")
+    elif r.status_code == 409:
+        st.warning("A sync is already running.")
+    elif r.status_code == 422:
+        st.warning(r.json().get("error", "Configure Drive folder + service account first."))
+    else:
+        st.error(f"Sync failed ({r.status_code}): {r.text[:300]}")
+
+
 # ----------------------------------------------------------------- Settings
 
 
@@ -115,22 +147,8 @@ def page_settings() -> None:
 
 def page_dashboard() -> None:
     st.header("📊 Dashboard")
-
-    left, right = st.columns([1, 1])
-    with left:
-        if st.button("🔄 Sync now", type="primary"):
-            try:
-                r = api_post("/sync")
-                if r.status_code == 202:
-                    st.success(f"Sync started (job {r.json().get('job_id')}).")
-                elif r.status_code == 409:
-                    st.warning("A sync is already running.")
-                else:
-                    st.error(f"Sync failed ({r.status_code}): {r.text[:300]}")
-            except requests.RequestException as exc:
-                st.error(f"Sync failed: {exc}")
-    with right:
-        st.button("↻ Refresh status")  # any button click reruns the script
+    st.caption("Sync is triggered from the **Chat** page; auto-sync also runs in the background.")
+    st.button("↻ Refresh status")  # any button click reruns the script
 
     try:
         status = api_get("/status").json()
@@ -221,12 +239,28 @@ def page_chat() -> None:
     if "messages" not in st.session_state:
         st.session_state.messages = []
 
-    cols = st.columns([4, 1])
-    cols[0].caption(f"Session: `{st.session_state.session_id}`")
-    if cols[1].button("New chat"):
-        st.session_state.session_id = "ui_" + uuid.uuid4().hex[:8]
-        st.session_state.messages = []
-        st.rerun()
+    # --- sync controls + last auto-sync (moved here from the Dashboard) ---
+    state = sync_state()
+    sc = st.columns([1.3, 0.7, 3.2, 1.0])
+    with sc[0]:
+        if st.button("🔄 Sync now", type="primary"):
+            trigger_sync()
+    with sc[1]:
+        st.button("↻", help="Refresh sync status")  # any click reruns the script
+    with sc[2]:
+        if state.get("running"):
+            st.caption("⏳ Sync in progress…")
+        else:
+            mins = state.get("auto_sync_minutes", 15)
+            st.caption(
+                f"🕒 Last auto-sync: {_fmt_ts(state.get('last_auto_sync'))} · every {mins} min"
+            )
+    with sc[3]:
+        if st.button("New chat"):
+            st.session_state.session_id = "ui_" + uuid.uuid4().hex[:8]
+            st.session_state.messages = []
+            st.rerun()
+    st.caption(f"Session: `{st.session_state.session_id}`")
 
     for m in st.session_state.messages:
         with st.chat_message(m["role"]):

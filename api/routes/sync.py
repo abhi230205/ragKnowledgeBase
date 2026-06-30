@@ -67,6 +67,8 @@ def post_sync(body: Optional[SyncRequest] = None):
     result = trigger_sync(folder_id)
     if result.get("already_running"):
         return JSONResponse(status_code=http_status.HTTP_409_CONFLICT, content=result)
+    if result.get("status") == "error":
+        return JSONResponse(status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR, content=result)
     return JSONResponse(status_code=http_status.HTTP_202_ACCEPTED, content=result)
 
 

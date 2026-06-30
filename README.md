@@ -144,13 +144,14 @@ Credentials can alternatively be provided via files: drop the JSON at
 ## 4. How to use
 
 1. **Settings** — set the Drive folder ID, service-account JSON, Anthropic key, top-k.
-2. **Dashboard** — click **Sync now**; watch live status (documents, chunks, last
-   sync, per-file errors). Re-syncing skips unchanged files; editing a file
-   re-embeds only it; deleting removes its chunks.
-3. **Chat** — ask a question. The answer streams token-by-token, grounded only in
-   your documents, with a **Sources** panel mapping each `[n]` marker to its document
-   and page. Out-of-corpus questions get an honest "not in the knowledge base"
-   reply. Conversations are multi-turn within a session.
+2. **Chat** — click **Sync now** (top of the page) to ingest; the **last auto-sync**
+   time shows next to it. Re-syncing skips unchanged files; editing a file re-embeds
+   only it; deleting removes its chunks. A background **auto-sync runs every 15 minutes**
+   (configurable via `AUTO_SYNC_MINUTES`). Then ask a question — the answer streams
+   token-by-token, grounded only in your documents, with a **Sources** panel mapping
+   each `[n]` marker to its document and page. Out-of-corpus questions get an honest
+   "not in the knowledge base" reply; conversations are multi-turn within a session.
+3. **Dashboard** — live status: documents, chunks, last sync, per-file errors.
 
 A `/search` endpoint is available independently for testing retrieval
 (`POST /search {"query": "...", "top_k": 5}`).
@@ -205,7 +206,7 @@ test it, and adversarially review it before trusting it.
 ```bash
 docker compose run --rm api pytest          # or, in a venv from ./api: pytest
 ```
-**65 tests** (captured in [docs/test-report.txt](docs/test-report.txt)) cover:
+**71 tests** (captured in [docs/test-report.txt](docs/test-report.txt)) cover:
 - **Unit / integration:** chunking (count/overlap/size/page-spans/short/empty),
   embedding (dimension/determinism/batch), retrieval (relevance/top-k/filter/delete),
   the sync diff (incl. modifiedTime fallback), Drive folder-id parsing, `/search`,

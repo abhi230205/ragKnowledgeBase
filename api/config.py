@@ -51,6 +51,9 @@ class Settings(BaseSettings):
     # ---- Ingestion batching ----
     embed_batch_chunks: int = 512  # chunks per embed/upsert slice (bounds memory)
 
+    # ---- Auto-sync ----
+    auto_sync_minutes: int = 15  # background re-sync interval
+
     # ---- Storage (inside container; on named volumes) ----
     chroma_path: str = "/data/chroma"
     sqlite_path: str = "/data/app/rag.db"
