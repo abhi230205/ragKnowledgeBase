@@ -205,10 +205,18 @@ test it, and adversarially review it before trusting it.
 ```bash
 docker compose run --rm api pytest          # or, in a venv from ./api: pytest
 ```
-40 tests cover chunking (count/overlap/size/page-spans/short/empty), embedding
-(dimension/determinism/batch), retrieval (relevance/top-k/filter/delete), the sync
-diff, `/search`, `/chat` (prompt builder, citations, no-context guard, SSE shape,
-history sanitizer, threshold guard), and `/config` (masking, validation).
+**65 tests** (captured in [docs/test-report.txt](docs/test-report.txt)) cover:
+- **Unit / integration:** chunking (count/overlap/size/page-spans/short/empty),
+  embedding (dimension/determinism/batch), retrieval (relevance/top-k/filter/delete),
+  the sync diff (incl. modifiedTime fallback), Drive folder-id parsing, `/search`,
+  `/chat` (prompt builder, citations, no-context guard, SSE shape, history sanitizer,
+  threshold guard), and `/config` (masking, validation).
+- **End-to-end** (`tests/test_e2e.py`, only Drive + the Anthropic stream faked):
+  full sync (parse → chunk → embed → store) with scanned-PDF flagging and table
+  extraction; `/search`; grounded `/chat` with citations; no-context refusal;
+  mid-stream error over SSE; multi-turn history replay; incremental sync
+  (unchanged/modified/renamed/deleted); `/sync` pre-flight 422s; Drive auth-failure
+  error dict; persistence across a client reopen; and the embedding-model re-index guard.
 
 ## Tooling (Claude Code)
 

@@ -1,5 +1,5 @@
 RAG Knowledge Base — test report
-Captured: 2026-06-29 (docker compose run --rm api pytest -v)
+Captured: 2026-06-30 (docker compose run --rm api pytest -v)
 ========================================================================
 
 ============================= test session starts ==============================
@@ -9,52 +9,72 @@ rootdir: /app
 configfile: pytest.ini
 testpaths: tests
 plugins: anyio-4.14.1
-collecting ... collected 45 items
+collecting ... collected 65 items
 
-tests/test_chat.py::test_build_messages_structure_and_citations PASSED   [  2%]
-tests/test_chat.py::test_no_context_message_is_embedded_in_system_prompt PASSED [  4%]
-tests/test_chat.py::test_stream_no_context_path PASSED                   [  6%]
-tests/test_chat.py::test_stream_with_context_mocked PASSED               [  8%]
-tests/test_chat.py::test_stream_missing_api_key_errors PASSED            [ 11%]
-tests/test_chat.py::test_chat_empty_message_422 PASSED                   [ 13%]
-tests/test_chat.py::test_chat_empty_session_422 PASSED                   [ 15%]
-tests/test_chat.py::test_build_messages_sanitizes_history PASSED         [ 17%]
-tests/test_chat.py::test_retrieve_empty_collection PASSED                [ 20%]
-tests/test_chat.py::test_retrieve_relevant_passes_threshold PASSED       [ 22%]
-tests/test_chat.py::test_retrieve_below_threshold_returns_empty PASSED   [ 24%]
-tests/test_chat.py::test_stream_midstream_error_still_emits_citations_and_done PASSED [ 26%]
-tests/test_chat.py::test_stream_empty_completion_falls_back PASSED       [ 28%]
-tests/test_chat.py::test_build_messages_trims_to_token_budget PASSED     [ 31%]
-tests/test_chat.py::test_chat_retrieval_failure_streams_error_not_500 PASSED [ 33%]
-tests/test_chunker.py::test_chunk_count_no_overlap PASSED                [ 35%]
-tests/test_chunker.py::test_chunk_overlap_shares_text PASSED             [ 37%]
-tests/test_chunker.py::test_chunk_never_exceeds_max PASSED               [ 40%]
-tests/test_chunker.py::test_chunk_page_metadata_spans_pages PASSED       [ 42%]
-tests/test_chunker.py::test_short_doc_single_chunk PASSED                [ 44%]
-tests/test_chunker.py::test_empty_input_no_chunks PASSED                 [ 46%]
-tests/test_config.py::test_mask_helper PASSED                            [ 48%]
-tests/test_config.py::test_get_config_defaults PASSED                    [ 51%]
-tests/test_config.py::test_post_saves_and_masks_secrets PASSED           [ 53%]
-tests/test_config.py::test_post_invalid_service_account_json_422 PASSED  [ 55%]
-tests/test_config.py::test_post_service_account_missing_keys_422 PASSED  [ 57%]
-tests/test_config.py::test_post_service_account_non_object_json_422 PASSED [ 60%]
-tests/test_config.py::test_post_top_k_must_be_positive_422 PASSED        [ 62%]
-tests/test_config.py::test_blank_secret_leaves_existing_unchanged PASSED [ 64%]
-tests/test_embedding.py::test_embedding_dimension_is_384 PASSED          [ 66%]
-tests/test_embedding.py::test_embed_texts_batch_length_and_dim PASSED    [ 68%]
-tests/test_embedding.py::test_embedding_is_deterministic PASSED          [ 71%]
-tests/test_embedding.py::test_empty_input_returns_empty PASSED           [ 73%]
-tests/test_health.py::test_health_ok PASSED                              [ 75%]
-tests/test_retrieval.py::test_retrieval_returns_relevant_chunk PASSED    [ 77%]
-tests/test_retrieval.py::test_topk_and_file_filter PASSED                [ 80%]
-tests/test_retrieval.py::test_delete_file_removes_chunks PASSED          [ 82%]
-tests/test_search.py::test_search_returns_relevant PASSED                [ 84%]
-tests/test_search.py::test_search_respects_top_k_and_filter PASSED       [ 86%]
-tests/test_search.py::test_search_empty_query_422 PASSED                 [ 88%]
-tests/test_search.py::test_search_empty_collection PASSED                [ 91%]
-tests/test_sync_diff.py::test_compute_diff_classifies_all_cases PASSED   [ 93%]
-tests/test_sync_diff.py::test_compute_diff_empty_tracked_all_added PASSED [ 95%]
-tests/test_sync_diff.py::test_compute_diff_empty_drive_all_deleted PASSED [ 97%]
+tests/test_chat.py::test_build_messages_structure_and_citations PASSED   [  1%]
+tests/test_chat.py::test_no_context_message_is_embedded_in_system_prompt PASSED [  3%]
+tests/test_chat.py::test_stream_no_context_path PASSED                   [  4%]
+tests/test_chat.py::test_stream_with_context_mocked PASSED               [  6%]
+tests/test_chat.py::test_stream_missing_api_key_errors PASSED            [  7%]
+tests/test_chat.py::test_chat_empty_message_422 PASSED                   [  9%]
+tests/test_chat.py::test_chat_empty_session_422 PASSED                   [ 10%]
+tests/test_chat.py::test_build_messages_sanitizes_history PASSED         [ 12%]
+tests/test_chat.py::test_retrieve_empty_collection PASSED                [ 13%]
+tests/test_chat.py::test_retrieve_relevant_passes_threshold PASSED       [ 15%]
+tests/test_chat.py::test_retrieve_below_threshold_returns_empty PASSED   [ 16%]
+tests/test_chat.py::test_stream_midstream_error_still_emits_citations_and_done PASSED [ 18%]
+tests/test_chat.py::test_stream_empty_completion_falls_back PASSED       [ 20%]
+tests/test_chat.py::test_build_messages_trims_to_token_budget PASSED     [ 21%]
+tests/test_chat.py::test_chat_retrieval_failure_streams_error_not_500 PASSED [ 23%]
+tests/test_chunker.py::test_chunk_count_no_overlap PASSED                [ 24%]
+tests/test_chunker.py::test_chunk_overlap_shares_text PASSED             [ 26%]
+tests/test_chunker.py::test_chunk_never_exceeds_max PASSED               [ 27%]
+tests/test_chunker.py::test_chunk_page_metadata_spans_pages PASSED       [ 29%]
+tests/test_chunker.py::test_short_doc_single_chunk PASSED                [ 30%]
+tests/test_chunker.py::test_empty_input_no_chunks PASSED                 [ 32%]
+tests/test_config.py::test_mask_helper PASSED                            [ 33%]
+tests/test_config.py::test_get_config_defaults PASSED                    [ 35%]
+tests/test_config.py::test_post_saves_and_masks_secrets PASSED           [ 36%]
+tests/test_config.py::test_post_invalid_service_account_json_422 PASSED  [ 38%]
+tests/test_config.py::test_post_service_account_missing_keys_422 PASSED  [ 40%]
+tests/test_config.py::test_post_service_account_non_object_json_422 PASSED [ 41%]
+tests/test_config.py::test_post_top_k_must_be_positive_422 PASSED        [ 43%]
+tests/test_config.py::test_blank_secret_leaves_existing_unchanged PASSED [ 44%]
+tests/test_drive_client.py::test_extract_from_folder_url PASSED          [ 46%]
+tests/test_drive_client.py::test_extract_from_folder_url_with_query PASSED [ 47%]
+tests/test_drive_client.py::test_extract_from_open_id_link PASSED        [ 49%]
+tests/test_drive_client.py::test_bare_id_passthrough PASSED              [ 50%]
+tests/test_drive_client.py::test_empty_passthrough PASSED                [ 52%]
+tests/test_e2e.py::test_e2e_sync_ingests_embeds_and_flags_scanned PASSED [ 53%]
+tests/test_e2e.py::test_e2e_search_returns_relevant PASSED               [ 55%]
+tests/test_e2e.py::test_e2e_chat_grounded_with_citations PASSED          [ 56%]
+tests/test_e2e.py::test_e2e_chat_no_context_refuses PASSED               [ 58%]
+tests/test_e2e.py::test_e2e_resync_skips_unchanged PASSED                [ 60%]
+tests/test_e2e.py::test_e2e_modified_file_reembeds PASSED                [ 61%]
+tests/test_e2e.py::test_e2e_deleted_file_removes_chunks PASSED           [ 63%]
+tests/test_e2e.py::test_e2e_renamed_file_updates_metadata_no_reembed PASSED [ 64%]
+tests/test_e2e.py::test_e2e_sync_preflight_422_when_unconfigured PASSED  [ 66%]
+tests/test_e2e.py::test_e2e_sync_auth_failure_returns_error_dict PASSED  [ 67%]
+tests/test_e2e.py::test_e2e_chat_midstream_error_over_http PASSED        [ 69%]
+tests/test_e2e.py::test_e2e_chat_multiturn_replays_history PASSED        [ 70%]
+tests/test_e2e.py::test_e2e_data_persists_across_client_reopen PASSED    [ 72%]
+tests/test_e2e.py::test_e2e_embedding_model_change_triggers_reindex PASSED [ 73%]
+tests/test_e2e.py::test_e2e_table_pdf_extracted_and_searchable PASSED    [ 75%]
+tests/test_embedding.py::test_embedding_dimension_is_384 PASSED          [ 76%]
+tests/test_embedding.py::test_embed_texts_batch_length_and_dim PASSED    [ 78%]
+tests/test_embedding.py::test_embedding_is_deterministic PASSED          [ 80%]
+tests/test_embedding.py::test_empty_input_returns_empty PASSED           [ 81%]
+tests/test_health.py::test_health_ok PASSED                              [ 83%]
+tests/test_retrieval.py::test_retrieval_returns_relevant_chunk PASSED    [ 84%]
+tests/test_retrieval.py::test_topk_and_file_filter PASSED                [ 86%]
+tests/test_retrieval.py::test_delete_file_removes_chunks PASSED          [ 87%]
+tests/test_search.py::test_search_returns_relevant PASSED                [ 89%]
+tests/test_search.py::test_search_respects_top_k_and_filter PASSED       [ 90%]
+tests/test_search.py::test_search_empty_query_422 PASSED                 [ 92%]
+tests/test_search.py::test_search_empty_collection PASSED                [ 93%]
+tests/test_sync_diff.py::test_compute_diff_classifies_all_cases PASSED   [ 95%]
+tests/test_sync_diff.py::test_compute_diff_empty_tracked_all_added PASSED [ 96%]
+tests/test_sync_diff.py::test_compute_diff_empty_drive_all_deleted PASSED [ 98%]
 tests/test_sync_diff.py::test_modifiedtime_fallback_when_md5_absent PASSED [100%]
 
 =============================== warnings summary ===============================
@@ -62,5 +82,9 @@ tests/test_sync_diff.py::test_modifiedtime_fallback_when_md5_absent PASSED [100%
   /usr/local/lib/python3.11/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
     from starlette.testclient import TestClient as TestClient  # noqa
 
+tests/test_e2e.py::test_e2e_sync_preflight_422_when_unconfigured
+  /usr/local/lib/python3.11/site-packages/anyio/_backends/_asyncio.py:1029: StarletteDeprecationWarning: 'HTTP_422_UNPROCESSABLE_ENTITY' is deprecated. Use 'HTTP_422_UNPROCESSABLE_CONTENT' instead.
+    result = context.run(func, *args)
+
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-======================== 45 passed, 1 warning in 12.76s ========================
+======================= 65 passed, 2 warnings in 15.93s ========================

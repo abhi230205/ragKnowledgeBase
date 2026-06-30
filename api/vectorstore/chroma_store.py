@@ -142,10 +142,11 @@ def reset_collection(client=None) -> None:
 
 
 def _stamp(collection, model: str, dim: int) -> None:
+    # NOTE: do NOT include "hnsw:space" here — Chroma rejects any modify() carrying
+    # the distance function (it's fixed at creation), which would make the whole
+    # stamp fail. The space stays cosine from get_collection()'s create call.
     try:
-        collection.modify(
-            metadata={"hnsw:space": "cosine", "embedding_model": model, "embedding_dim": dim}
-        )
+        collection.modify(metadata={"embedding_model": model, "embedding_dim": dim})
     except Exception:  # pragma: no cover - metadata stamp is best-effort
         logger.warning("Could not stamp collection embedding metadata")
 
