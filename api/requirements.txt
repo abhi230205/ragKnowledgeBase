@@ -21,9 +21,10 @@ chromadb
 # Embeddings (local, open-source). torch is installed separately (CPU build) in the Dockerfile.
 sentence-transformers
 
-# PDF parsing
+# Document parsing
 pymupdf
 pdfplumber
+python-docx
 
 # LLM (chat)
 anthropic

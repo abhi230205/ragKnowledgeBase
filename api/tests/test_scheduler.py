@@ -28,6 +28,7 @@ def _reset_state(monkeypatch):
         "last_auto_sync": None,
         "last_auto_summary": None,
         "auto_sync_minutes": settings.auto_sync_minutes,
+        "progress": None,
     }
     monkeypatch.setattr(sched, "_state", baseline)
     yield
@@ -101,3 +102,13 @@ def test_auto_sync_runs_and_records_time(monkeypatch):
     assert state["last_auto_sync"] is not None
     assert state["last_auto_summary"] == {"status": "completed", "summary": {"added": 1}}
     assert state["running"] is False
+
+
+def test_sync_resets_progress_to_none_when_done(monkeypatch):
+    """When a run finishes, progress returns to None (idle contract) so the SSE
+    stream / status don't leak the previous run's last per-file snapshot."""
+    monkeypatch.setattr(sched, "_config_ready", lambda: True)
+    monkeypatch.setattr(sched, "run_sync", lambda *a, **k: {"status": "completed", "summary": {}})
+    sched._state["progress"] = {"done": 2, "total": 2, "file": "x.pdf", "phase": "embedding"}
+    sched._auto_sync_job()
+    assert sched.get_state()["progress"] is None

@@ -9,6 +9,8 @@ GET /sync/status reports the live/last job state.
 
 from __future__ import annotations
 
+import asyncio
+import json
 import os
 from typing import Optional
 
@@ -16,6 +18,7 @@ from fastapi import APIRouter
 from fastapi import status as http_status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+from sse_starlette.sse import EventSourceResponse
 
 from config import settings
 from db import crud
@@ -23,6 +26,14 @@ from db.session import get_session
 from ingestion.scheduler import get_state, trigger_sync
 
 router = APIRouter(tags=["sync"])
+
+# Poll cadence + safety cap for the progress stream (cap ≈ 30 min of a stuck job).
+_STREAM_POLL_SECONDS = 0.4
+_STREAM_MAX_TICKS = 4500
+
+
+def _sse(event: str, data) -> dict:
+    return {"event": event, "data": json.dumps(data)}
 
 
 class SyncRequest(BaseModel):
@@ -76,3 +87,48 @@ def post_sync(body: Optional[SyncRequest] = None):
 def sync_status() -> dict:
     """Live state of the current/last sync job."""
     return get_state()
+
+
+@router.get("/sync/stream")
+async def sync_stream():
+    """Stream live ingestion progress as SSE: `progress`* → `done`.
+
+    Polls the in-memory scheduler state and emits a `progress` event
+    ({running, done, total, file, phase}) each tick until the run finishes, then a
+    terminal `done` event with the summary. The UI drives an `st.progress` bar from
+    this. Safe to open with no sync running — it emits one snapshot then `done`.
+    """
+
+    async def gen():
+        for _ in range(_STREAM_MAX_TICKS):
+            state = get_state()
+            prog = state.get("progress") or {}
+            running = bool(state.get("running"))
+            yield _sse(
+                "progress",
+                {
+                    "running": running,
+                    "done": prog.get("done", 0),
+                    "total": prog.get("total", 0),
+                    "file": prog.get("file"),
+                    "phase": prog.get("phase"),
+                },
+            )
+            if not running:
+                break
+            await asyncio.sleep(_STREAM_POLL_SECONDS)
+
+        # `running` is True only if we fell out of the loop on the safety cap while
+        # the job was still going — the UI must NOT report that as completed.
+        final = get_state()
+        yield _sse(
+            "done",
+            {
+                "running": bool(final.get("running")),
+                "summary": final.get("last_summary") or {},
+                "finished_at": final.get("finished_at"),
+                "last_error": final.get("last_error"),
+            },
+        )
+
+    return EventSourceResponse(gen())

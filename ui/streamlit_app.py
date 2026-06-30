@@ -83,21 +83,87 @@ def _relative(iso: str | None) -> str:
     return f"{secs // 86400} d ago"
 
 
-def trigger_sync() -> None:
-    """POST /sync and surface the outcome (202 started / 409 running / 422 unconfigured)."""
+def _iter_sse(path: str, timeout: int = 600):
+    """Yield (event, data) tuples from a server SSE endpoint (event:/data: lines)."""
+    with requests.get(f"{API_URL}{path}", stream=True, timeout=timeout) as resp:
+        resp.raise_for_status()
+        event = None
+        for raw in resp.iter_lines(decode_unicode=True):
+            if not raw:
+                continue
+            line = raw.strip()
+            if line.startswith("event:"):
+                event = line[len("event:") :].strip()
+            elif line.startswith("data:"):
+                try:
+                    data = json.loads(line[len("data:") :].strip())
+                except json.JSONDecodeError:
+                    continue
+                yield event, data
+
+
+def run_sync_with_progress() -> None:
+    """POST /sync, then render a live progress bar by consuming /sync/stream.
+
+    202 starts a run; 409 means one is already running (we still attach to show its
+    progress); 422 means Drive/creds aren't configured. Reruns at the end so the
+    'Last sync' caption refreshes.
+    """
     try:
         r = api_post("/sync")
     except requests.RequestException as exc:
         st.error(f"Sync failed: {exc}")
         return
-    if r.status_code == 202:
-        st.success(f"Sync started (job {r.json().get('job_id')}).")
-    elif r.status_code == 409:
-        st.warning("A sync is already running.")
-    elif r.status_code == 422:
+    if r.status_code == 422:
         st.warning(r.json().get("error", "Configure Drive folder + service account first."))
-    else:
+        return
+    if r.status_code == 409:
+        st.info("A sync is already running — showing its progress.")
+    elif r.status_code != 202:
         st.error(f"Sync failed ({r.status_code}): {r.text[:300]}")
+        return
+
+    bar = st.progress(0.0, text="Starting sync…")
+    try:
+        for event, data in _iter_sse("/sync/stream"):
+            if event == "progress":
+                total = data.get("total") or 0
+                done = data.get("done") or 0
+                if total > 0:
+                    phase = (data.get("phase") or "working").title()
+                    fname = data.get("file") or ""
+                    bar.progress(min(1.0, done / total), text=f"{phase} {done}/{total} — {fname}")
+                else:
+                    bar.progress(0.0, text="Checking for changes…")
+            elif event == "done":
+                # toasts survive the rerun below (st.error/success would be wiped out)
+                if data.get("running"):
+                    # stream hit its safety cap while the job was still going
+                    bar.progress(1.0, text="Still syncing…")
+                    st.toast("Sync still running — use ↻ to check status.", icon="⏳")
+                    break
+                bar.progress(1.0, text="Sync complete")
+                err = data.get("last_error")
+                if err:
+                    st.toast(f"Sync error: {err}", icon="⚠️")
+                else:
+                    s = (data.get("summary") or {}).get("summary") or {}
+                    file_errors = s.get("errors") or []
+                    st.toast(
+                        f"Synced — +{s.get('added', 0)} added · {s.get('modified', 0)} modified · "
+                        f"{s.get('deleted', 0)} deleted · {s.get('unchanged', 0)} unchanged.",
+                        icon="✅",
+                    )
+                    if file_errors:
+                        st.toast(
+                            f"⚠️ {len(file_errors)} file(s) could not be ingested — see Dashboard.",
+                            icon="⚠️",
+                        )
+                break
+    except requests.RequestException as exc:
+        st.error(f"Lost connection to sync stream: {exc}")
+        return
+    st.rerun()
 
 
 # ----------------------------------------------------------------- Settings
@@ -260,9 +326,10 @@ def page_chat() -> None:
     # --- sync controls (Sync now + refresh adjacent), last-sync line below ---
     state = sync_state()
     sc = st.columns([1.2, 0.6, 3.2, 1.0])
+    do_sync = False
     with sc[0]:
         if st.button("🔄 Sync now", type="primary"):
-            trigger_sync()
+            do_sync = True
     with sc[1]:
         st.button("↻", help="Refresh sync status")  # any click reruns the script
     with sc[3]:
@@ -270,6 +337,10 @@ def page_chat() -> None:
             st.session_state.session_id = "ui_" + uuid.uuid4().hex[:8]
             st.session_state.messages = []
             st.rerun()
+
+    # Live progress bar (full width, below the buttons) while a manual sync runs.
+    if do_sync:
+        run_sync_with_progress()
 
     # "Last sync" reflects the most recent completed sync — manual OR auto.
     if state.get("running"):

@@ -1,10 +1,10 @@
 # RAG Knowledge Base — Google Drive + Claude
 
-A production-quality Retrieval-Augmented Generation system. It ingests PDFs from a
-Google Drive folder, embeds them into an open-source vector store, and answers
-questions in a **streaming chat that is grounded only in the retrieved documents,
-with citations** (document + page) and an honest "not in the knowledge base"
-fallback.
+A production-quality Retrieval-Augmented Generation system. It ingests **PDF and
+Word (.docx)** documents from a Google Drive folder, embeds them into an
+open-source vector store, and answers questions in a **streaming chat that is
+grounded only in the retrieved documents, with citations** (document + page) and an
+honest "not in the knowledge base" fallback. Ingestion shows a **live progress bar**.
 
 - **API:** http://localhost:8000 — `/docs` for the OpenAPI UI
 - **UI:** http://localhost:8501 — Settings · Dashboard · Chat
@@ -26,7 +26,7 @@ flowchart TD
     end
 
     subgraph API["API — FastAPI + Uvicorn (api container)"]
-        ROUTES["routes: /health /config /sync /search /chat /status"]
+        ROUTES["routes: /health /config /sync (+/sync/stream) /search /chat /status"]
         ING["Ingestion (APScheduler background job)"]
         EMB["Embedder — sentence-transformers (in-process)"]
         RET["Retrieval"]
@@ -60,24 +60,25 @@ HTTPS + SSE streaming. The embedder, embedded Chroma, and SQLite are **direct
 in-process library calls** (no network hop) — the cheapest correct option since
 none needs to be independently scaled here.
 
-**End-to-end flow:** PDFs in a Drive folder → ingestion pulls them over HTTPS →
-PyMuPDF extracts text per page → a token-aware overlapping chunker splits it →
-sentence-transformers embeds each chunk → chunks + metadata go into ChromaDB → a
-question is embedded the same way → top-k chunks come back → they're wrapped in a
-grounding prompt → Claude streams an answer → tokens are re-streamed to the UI over
-SSE with a citation list.
+**End-to-end flow:** PDF/DOCX files in a Drive folder → ingestion pulls them over
+HTTPS → PyMuPDF (PDF) or python-docx (DOCX) extracts text per page → a token-aware
+overlapping chunker splits it → sentence-transformers embeds each chunk → chunks +
+metadata go into ChromaDB → a question is embedded the same way → top-k chunks come
+back → they're wrapped in a grounding prompt → Claude streams an answer → tokens are
+re-streamed to the UI over SSE with a citation list. Ingestion progress is streamed
+to the UI over a second SSE channel (`/sync/stream`) and rendered as a progress bar.
 
 ### Layout
 ```
 api/   FastAPI; also runs ingestion + embedder + embedded Chroma + SQLite
   main.py · config.py
-  routes/       health · config · sync · search · chat · status
-  ingestion/    drive_client · pdf_parser · chunker · sync_diff · pipeline · scheduler
+  routes/       health · config · sync (+ /sync/stream) · search · chat · status
+  ingestion/    drive_client · pdf_parser · docx_parser · chunker · sync_diff · pipeline · scheduler
   embeddings/   embedder (sentence-transformers)
   vectorstore/  chroma_store (embedded PersistentClient, cosine)
   llm/          prompt_builder · claude_stream (Messages API streaming)
   db/           models (Config · FileRecord · ChatMessage) · session · crud
-  tests/        40 tests
+  tests/        80 tests
   scripts/      chunk_inspect.py
 ui/    streamlit_app.py (Settings · Dashboard · Chat)
 ```
@@ -144,13 +145,14 @@ Credentials can alternatively be provided via files: drop the JSON at
 ## 4. How to use
 
 1. **Settings** — set the Drive folder ID, service-account JSON, Anthropic key, top-k.
-2. **Chat** — click **Sync now** (top of the page) to ingest; the **last auto-sync**
-   time shows next to it. Re-syncing skips unchanged files; editing a file re-embeds
-   only it; deleting removes its chunks. A background **auto-sync runs every 15 minutes**
-   (configurable via `AUTO_SYNC_MINUTES`). Then ask a question — the answer streams
-   token-by-token, grounded only in your documents, with a **Sources** panel mapping
-   each `[n]` marker to its document and page. Out-of-corpus questions get an honest
-   "not in the knowledge base" reply; conversations are multi-turn within a session.
+2. **Chat** — click **Sync now** (top of the page) to ingest; a **live progress bar**
+   shows each file as it's embedded, and the **last sync** time shows below. Re-syncing
+   skips unchanged files; editing a file re-embeds only it; deleting removes its chunks.
+   **PDF and Word (.docx)** files are both ingested. A background **auto-sync runs every
+   15 minutes** (configurable via `AUTO_SYNC_MINUTES`). Then ask a question — the answer
+   streams token-by-token, grounded only in your documents, with a **Sources** panel
+   mapping each `[n]` marker to its document and page. Out-of-corpus questions get an
+   honest "not in the knowledge base" reply; conversations are multi-turn within a session.
 3. **Dashboard** — live status: documents, chunks, last sync, per-file errors.
 
 A `/search` endpoint is available independently for testing retrieval
@@ -167,14 +169,22 @@ A `/search` endpoint is available independently for testing retrieval
 - **No re-ranking layer** — a cross-encoder re-rank after top-k would lift retrieval
   quality (a named bonus).
 - **Service-account auth only** — OAuth 2.0 user flow is a bonus not implemented.
-- **PDF only** — DOCX support (`python-docx`) behind the same pipeline is a bonus.
+- **DOCX is single-page** — Word has no reliable page model, so a `.docx` is treated
+  as one page and its citations show p.1. Splitting on rendered page breaks would
+  need a layout engine (e.g. LibreOffice headless).
 - **In-process APScheduler** — no durable task queue; a crash mid-sync loses
   in-flight job state. Per-file state is persisted, so a re-run resumes cleanly;
   Celery + Redis is the scale-up.
 - **SQLite single-writer** — fine here; Postgres/pgvector is the consolidation play.
 - **More time:** Qdrant or Chroma-server for stricter service boundaries and scale,
-  a streaming sync-progress bar (reusing the SSE plumbing), and a query-rewrite step
-  for multi-turn retrieval.
+  OCR for scanned PDFs, and a query-rewrite step for multi-turn retrieval.
+
+### Bonus features implemented
+- **DOCX ingestion** (`python-docx`) behind the same parse → chunk → embed pipeline.
+- **Streaming ingestion progress bar** — the UI renders a live `st.progress` bar from
+  a `/sync/stream` SSE channel as each file is embedded.
+- **Incremental auto-sync** every 15 minutes (in-process APScheduler), on top of
+  manual sync, with md5/modifiedTime change detection.
 
 ## 6. Reflection on Claude Code
 
@@ -206,16 +216,18 @@ test it, and adversarially review it before trusting it.
 ```bash
 docker compose run --rm api pytest          # or, in a venv from ./api: pytest
 ```
-**71 tests** (captured in [docs/test-report.txt](docs/test-report.txt)) cover:
+**80 tests** (captured in [docs/test-report.txt](docs/test-report.txt)) cover:
 - **Unit / integration:** chunking (count/overlap/size/page-spans/short/empty),
   embedding (dimension/determinism/batch), retrieval (relevance/top-k/filter/delete),
-  the sync diff (incl. modifiedTime fallback), Drive folder-id parsing, `/search`,
-  `/chat` (prompt builder, citations, no-context guard, SSE shape, history sanitizer,
-  threshold guard), and `/config` (masking, validation).
+  the sync diff (incl. modifiedTime fallback), Drive folder-id parsing, the DOCX
+  parser (paragraphs/tables/blank-skip/corrupt-input), `/search`, `/chat` (prompt
+  builder, citations, no-context guard, SSE shape, history sanitizer, threshold
+  guard), and `/config` (masking, validation).
 - **End-to-end** (`tests/test_e2e.py`, only Drive + the Anthropic stream faked):
   full sync (parse → chunk → embed → store) with scanned-PDF flagging and table
-  extraction; `/search`; grounded `/chat` with citations; no-context refusal;
-  mid-stream error over SSE; multi-turn history replay; incremental sync
+  extraction; **DOCX ingestion + search**; **per-file sync progress callbacks**;
+  `/search`; grounded `/chat` with citations; no-context refusal; mid-stream error
+  over SSE; multi-turn history replay; incremental sync
   (unchanged/modified/renamed/deleted); `/sync` pre-flight 422s; Drive auth-failure
   error dict; persistence across a client reopen; and the embedding-model re-index guard.
 

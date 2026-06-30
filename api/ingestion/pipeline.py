@@ -19,16 +19,27 @@ from db.session import get_session
 from embeddings import embedder
 from vectorstore import chroma_store
 
-from ingestion import chunker, pdf_parser
-from ingestion.drive_client import DriveAuthError, DriveClient, DriveError, extract_folder_id
+from ingestion import chunker, docx_parser, pdf_parser
+from ingestion.drive_client import (
+    DOCX_MIME,
+    PDF_MIME,
+    DriveAuthError,
+    DriveClient,
+    DriveError,
+    extract_folder_id,
+)
 from ingestion.sync_diff import compute_diff
 
 logger = logging.getLogger(__name__)
 
 
-def run_sync(folder_id: str | None = None) -> dict:
+def run_sync(folder_id: str | None = None, progress_cb=None) -> dict:
     """Run one ingestion pass. Returns a status summary. Normal operational
-    failures (auth/folder/listing) come back in the dict rather than raising."""
+    failures (auth/folder/listing) come back in the dict rather than raising.
+
+    `progress_cb(done, total, file_name, phase)` is called as each file is
+    processed, so callers can stream a live progress bar.
+    """
     session = get_session()
     try:
         cfg = crud.get_or_create_config(session)
@@ -46,7 +57,7 @@ def run_sync(folder_id: str | None = None) -> dict:
             return {"status": "error", "error": str(exc)}
 
         try:
-            drive_files = client.list_pdfs(folder)
+            drive_files = client.list_documents(folder)
         except (DriveError, DriveAuthError) as exc:
             logger.warning("Drive listing failed: %s", exc)
             return {"status": "error", "error": str(exc)}
@@ -85,6 +96,19 @@ def run_sync(folder_id: str | None = None) -> dict:
             "errors": [],
         }
 
+        # Progress accounting: total = files we act on this run (skip "unchanged").
+        total = len(diff.deleted) + len(diff.renamed) + len(diff.modified) + len(diff.added)
+        done = 0
+
+        def _tick(name: str | None, phase: str) -> None:
+            nonlocal done
+            done += 1
+            if progress_cb:
+                progress_cb(done, total, name, phase)
+
+        if progress_cb:
+            progress_cb(0, total, None, "starting")
+
         # --- deleted: drop chunks + record row ---
         for file_id in diff.deleted:
             try:
@@ -95,6 +119,7 @@ def run_sync(folder_id: str | None = None) -> dict:
             except Exception as exc:  # pragma: no cover - defensive
                 logger.exception("Failed deleting %s", file_id)
                 counts["errors"].append({"file": file_id, "reason": f"delete failed: {exc}"})
+            _tick(file_id, "deleting")
 
         # --- renamed: metadata-only update, no re-embedding ---
         for f in diff.renamed:
@@ -105,6 +130,7 @@ def run_sync(folder_id: str | None = None) -> dict:
             except Exception as exc:  # pragma: no cover
                 logger.exception("Failed renaming %s", f.id)
                 counts["errors"].append({"file": f.name, "reason": f"rename failed: {exc}"})
+            _tick(f.name, "renaming")
 
         # --- modified: delete old chunks first (no orphans), then re-process ---
         for f in diff.modified:
@@ -125,6 +151,7 @@ def run_sync(folder_id: str | None = None) -> dict:
                 logger.exception("Failed re-processing %s", f.id)
                 crud.set_file_error(session, f.id, f.name, str(exc))
                 counts["errors"].append({"file": f.name, "reason": str(exc)})
+            _tick(f.name, "embedding")
 
         # --- added: process from scratch ---
         for f in diff.added:
@@ -135,6 +162,7 @@ def run_sync(folder_id: str | None = None) -> dict:
                 logger.exception("Failed processing %s", f.id)
                 crud.set_file_error(session, f.id, f.name, str(exc))
                 counts["errors"].append({"file": f.name, "reason": str(exc)})
+            _tick(f.name, "embedding")
 
         summary = crud.status_summary(session)
         return {
@@ -154,10 +182,21 @@ def _process_file(session, collection, client: DriveClient, f, counts) -> int | 
     Returns the chunk count, or None if the file was flagged (e.g. no extractable
     text). Raises on hard errors so the caller records a per-file error.
     """
-    pdf_bytes = client.download_bytes(f.id)
+    raw = client.download_bytes(f.id)
+
+    # Dispatch by type: DOCX via python-docx, everything else via PyMuPDF. Trust the
+    # authoritative Drive mime type; only fall back to the filename extension when the
+    # mime is neither known type (so a PDF mislabeled "*.docx" still parses as a PDF).
+    if f.mime_type == DOCX_MIME:
+        is_docx = True
+    elif f.mime_type == PDF_MIME:
+        is_docx = False
+    else:
+        is_docx = f.name.lower().endswith(".docx")
+    parser = docx_parser if is_docx else pdf_parser
 
     try:
-        pages = pdf_parser.extract_pages(pdf_bytes)
+        pages = parser.extract_pages(raw)
     except ValueError as exc:
         crud.set_file_error(session, f.id, f.name, str(exc))
         counts["errors"].append({"file": f.name, "reason": str(exc)})

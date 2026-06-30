@@ -14,6 +14,7 @@ to the temp DB at once.
 
 from __future__ import annotations
 
+import io
 import json
 
 import fitz
@@ -27,7 +28,7 @@ import vectorstore.chroma_store as cs
 from config import settings
 from db.models import Base
 from ingestion import pipeline
-from ingestion.drive_client import PDF_MIME, DriveFile
+from ingestion.drive_client import DOCX_MIME, PDF_MIME, DriveFile
 from llm import claude_stream, prompt_builder
 from main import app
 
@@ -63,15 +64,32 @@ def _scanned_pdf() -> bytes:
     return data
 
 
-def _dfile(fid: str, name: str, md5: str) -> DriveFile:
+def _dfile(fid: str, name: str, md5: str, mime: str = PDF_MIME) -> DriveFile:
     return DriveFile(
         id=fid,
         name=name,
-        mime_type=PDF_MIME,
+        mime_type=mime,
         md5_checksum=md5,
         modified_time="2026-01-01T00:00:00Z",
         size=1234,
     )
+
+
+def _docx(paragraphs: list[str], table: list[list[str]] | None = None) -> bytes:
+    """Build a real .docx in memory (paragraphs + an optional table)."""
+    from docx import Document
+
+    doc = Document()
+    for para in paragraphs:
+        doc.add_paragraph(para)
+    if table:
+        t = doc.add_table(rows=len(table), cols=len(table[0]))
+        for i, row in enumerate(table):
+            for j, cell in enumerate(row):
+                t.cell(i, j).text = cell
+    buf = io.BytesIO()
+    doc.save(buf)
+    return buf.getvalue()
 
 
 class _FakeDrive:
@@ -80,7 +98,7 @@ class _FakeDrive:
     def __init__(self, corpus):  # corpus: list[(DriveFile, bytes)]
         self._corpus = corpus
 
-    def list_pdfs(self, folder_id, recursive=True):
+    def list_documents(self, folder_id, recursive=True):
         return [f for f, _ in self._corpus]
 
     def download_bytes(self, file_id):
@@ -405,3 +423,73 @@ def test_e2e_table_pdf_extracted_and_searchable(e2e_env, monkeypatch):
     assert res["count"] >= 1
     assert res["results"][0]["file_name"] == "acme_pricing.pdf"
     assert "99" in (res["results"][0]["preview"] or "")  # table cell text was extracted
+
+
+def test_e2e_docx_ingested_and_searchable(e2e_env, monkeypatch):
+    """A .docx flows through the same parse -> chunk -> embed -> search path as PDFs,
+    is single-page (citations show p.1), and table rows are extracted."""
+    corpus = [
+        (
+            _dfile("f_vac", "vacation_policy.docx", "md5-docx-v1", mime=DOCX_MIME),
+            _docx(
+                [
+                    "Vacation Policy",
+                    "Employees accrue 25 days of paid vacation per calendar year.",
+                    "Unused vacation does not roll over to the next year.",
+                ],
+                table=[["Tier", "Days"], ["Senior", "30 days per year"]],
+            ),
+        )
+    ]
+    _use_corpus(monkeypatch, corpus)
+    s = pipeline.run_sync("folder-id")["summary"]
+    assert s["added"] == 1 and s["chunks_created"] >= 1
+
+    res = client.post(
+        "/search", json={"query": "how many vacation days do employees accrue?", "top_k": 3}
+    ).json()
+    assert res["count"] >= 1
+    top = res["results"][0]
+    assert top["file_name"] == "vacation_policy.docx"
+    assert top["start_page"] == 1 and top["end_page"] == 1  # DOCX is single-page
+
+    # The table content is reachable too.
+    tbl = client.post("/search", json={"query": "senior tier vacation days", "top_k": 3}).json()
+    assert any("30" in (r["preview"] or "") for r in tbl["results"])
+
+
+def test_e2e_pdf_named_docx_uses_mime_not_extension(e2e_env, monkeypatch):
+    """A real PDF whose Drive name ends in '.docx' but whose mime is application/pdf
+    must be parsed by PyMuPDF (authoritative mime wins over the extension), not routed
+    to the DOCX parser and dropped as an error."""
+    corpus = [
+        (
+            _dfile("f_misnamed", "report.docx", "md5-misnamed-v1", mime=PDF_MIME),
+            _pdf([("Quarterly Report", "Net revenue grew by forty two percent this quarter.")]),
+        )
+    ]
+    _use_corpus(monkeypatch, corpus)
+    s = pipeline.run_sync("folder-id")["summary"]
+    assert s["added"] == 1 and not s["errors"]
+
+    res = client.post("/search", json={"query": "how much did revenue grow?", "top_k": 3}).json()
+    assert res["count"] >= 1
+    assert res["results"][0]["file_name"] == "report.docx"
+
+
+def test_e2e_progress_cb_reports_each_file(e2e_env, monkeypatch):
+    """run_sync invokes progress_cb once at start then once per acted-on file, with
+    a monotonically increasing done count that ends at total."""
+    _use_corpus(monkeypatch, _default_corpus())
+    events: list[tuple] = []
+    pipeline.run_sync(
+        "folder-id",
+        progress_cb=lambda done, total, name, phase: events.append((done, total, name, phase)),
+    )
+
+    assert events[0] == (0, 3, None, "starting")  # 3 files to act on (all added)
+    ticks = events[1:]
+    assert len(ticks) == 3
+    assert [d for d, *_ in ticks] == [1, 2, 3]  # done increments per file
+    assert all(total == 3 for _, total, *_ in ticks)
+    assert all(phase == "embedding" for *_, phase in ticks)  # first run = all added

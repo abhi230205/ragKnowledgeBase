@@ -18,7 +18,10 @@ streaming chat that answers **only** from retrieved context, with citations.
 - **Embeddings:** **local sentence-transformers**, default `all-MiniLM-L6-v2`
   (384-dim), in-process, model selectable. **Claude is NOT an embedding model —
   never embed via the Anthropic API.** (Voyage AI is the optional paid alternative.)
-- **PDF parsing:** PyMuPDF (`fitz`) primary; pdfplumber for table-heavy pages.
+- **Document parsing:** PyMuPDF (`fitz`) primary for PDF; pdfplumber for table-heavy
+  pages. **DOCX** via `python-docx` (`ingestion/docx_parser.py`) — paragraphs + table
+  rows, returned as a single page (p.1). The pipeline dispatches by mime/extension;
+  Drive lists PDF **and** DOCX (`drive_client.list_documents`, `DOC_MIMES`).
 - **Chunking:** sentence-aware sliding window, **token-aware** and sized to the
   embedding model's max — default ~256 tokens for `all-MiniLM-L6-v2`, clamped at
   runtime via `embedder.effective_chunk_tokens()`; ~15% overlap; page-tracked
@@ -79,6 +82,12 @@ settings`) — NOT prefixed with `api.`. Tests run from `api/` (`pytest.ini` set
 ## Conventions
 - SSE event protocol for `/chat`: `token` (repeated) → `citations` → `done`; an
   `error` event on failure. Chroma cosine: relevance score = `1 - distance`.
+- SSE event protocol for `/sync/stream` (live ingestion progress bar): `progress`
+  (repeated, `{running,done,total,file,phase}`) → `done`
+  (`{running,summary,finished_at,last_error}`; `running:true` means the stream hit its
+  safety cap while the job was still going — the UI must not report that as complete).
+  The pipeline reports per-file via a `progress_cb`; the scheduler stores it in
+  `_state["progress"]` (reset to `None` when idle); the UI drives an `st.progress` bar.
 - Deterministic Chroma ids: `"{file_id}_{chunk_index}"` (idempotent re-sync).
 - Chroma metadata per chunk: `file_id, file_name, start_page, end_page,
   chunk_index, preview`.

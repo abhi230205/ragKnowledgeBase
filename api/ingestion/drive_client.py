@@ -28,7 +28,9 @@ logger = logging.getLogger(__name__)
 SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
 
 PDF_MIME = "application/pdf"
+DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 FOLDER_MIME = "application/vnd.google-apps.folder"
+DOC_MIMES = (PDF_MIME, DOCX_MIME)
 
 
 def extract_folder_id(value: str) -> str:
@@ -122,18 +124,19 @@ class DriveClient:
         except Exception as exc:  # pragma: no cover - defensive
             raise DriveAuthError(f"Failed to initialise Drive client: {exc}") from exc
 
-    def list_pdfs(self, folder_id: str, recursive: bool = True) -> list[DriveFile]:
-        """Return every PDF in `folder_id` (and sub-folders if recursive).
+    def list_documents(self, folder_id: str, recursive: bool = True) -> list[DriveFile]:
+        """Return every supported document (PDF + DOCX) in `folder_id` (and
+        sub-folders if recursive).
 
         Folders are walked iteratively; both folders and files are de-duplicated
         by id (a file may have multiple parents / be reachable via shortcuts, so
-        the same PDF can surface under two scanned folders).
+        the same file can surface under two scanned folders).
         Raises DriveError on API failure or if folder_id is empty.
         """
         if not folder_id:
             raise DriveError("No Drive folder id configured.")
 
-        pdfs: list[DriveFile] = []
+        docs: list[DriveFile] = []
         to_scan: list[str] = [folder_id]
         seen_folders: set[str] = set()
         seen_files: set[str] = set()
@@ -144,21 +147,22 @@ class DriveClient:
                 continue
             seen_folders.add(current)
             for f in self._list_children(current):
-                if f.mime_type == PDF_MIME:
+                if f.mime_type in DOC_MIMES:
                     if f.id not in seen_files:
                         seen_files.add(f.id)
-                        pdfs.append(f)
+                        docs.append(f)
                 elif recursive and f.mime_type == FOLDER_MIME:
                     to_scan.append(f.id)
 
-        logger.info("Drive: found %d PDF(s) under folder %s", len(pdfs), folder_id)
-        return pdfs
+        logger.info("Drive: found %d document(s) under folder %s", len(docs), folder_id)
+        return docs
 
     def _list_children(self, folder_id: str) -> list[DriveFile]:
-        """List immediate PDF + folder children of `folder_id`, paging fully."""
+        """List immediate PDF/DOCX + folder children of `folder_id`, paging fully."""
         query = (
             f"'{folder_id}' in parents and trashed = false and "
-            f"(mimeType = '{PDF_MIME}' or mimeType = '{FOLDER_MIME}')"
+            f"(mimeType = '{PDF_MIME}' or mimeType = '{DOCX_MIME}' "
+            f"or mimeType = '{FOLDER_MIME}')"
         )
         fields = "nextPageToken, files(id, name, mimeType, md5Checksum, modifiedTime, size)"
         children: list[DriveFile] = []

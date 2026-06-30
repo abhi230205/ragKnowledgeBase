@@ -38,11 +38,23 @@ _state: dict = {
     "last_auto_sync": None,  # ISO time the last AUTO-sync finished
     "last_auto_summary": None,  # summary dict of the last auto-sync
     "auto_sync_minutes": settings.auto_sync_minutes,
+    "progress": None,  # live {done,total,file,phase} during a run; None when idle
 }
 
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _set_progress(done: int, total: int, file_name: str | None, phase: str) -> None:
+    """Per-file progress callback handed to run_sync; the SSE stream reads this."""
+    with _lock:
+        _state["progress"] = {
+            "done": done,
+            "total": total,
+            "file": file_name,
+            "phase": phase,
+        }
 
 
 def start_scheduler() -> None:
@@ -99,7 +111,12 @@ def trigger_sync(folder_id: str | None = None) -> dict:
             return {"job_id": _state["job_id"], "status": "running", "already_running": True}
         job_id = f"sync_{uuid.uuid4().hex[:8]}"
         _state.update(
-            running=True, job_id=job_id, started_at=_now_iso(), finished_at=None, last_error=None
+            running=True,
+            job_id=job_id,
+            started_at=_now_iso(),
+            finished_at=None,
+            last_error=None,
+            progress={"done": 0, "total": 0, "file": None, "phase": "queued"},
         )
 
     if _scheduler is None:
@@ -117,7 +134,7 @@ def trigger_sync(folder_id: str | None = None) -> dict:
 
 def _run_job(folder_id: str | None, job_id: str) -> None:
     try:
-        summary = run_sync(folder_id)
+        summary = run_sync(folder_id, progress_cb=_set_progress)
         with _lock:
             _state["last_summary"] = summary
             _state["last_error"] = (
@@ -132,6 +149,7 @@ def _run_job(folder_id: str | None, job_id: str) -> None:
         with _lock:
             _state["running"] = False
             _state["finished_at"] = _now_iso()
+            _state["progress"] = None  # back to idle (contract: None when not running)
 
 
 def _auto_sync_job() -> None:
@@ -144,12 +162,17 @@ def _auto_sync_job() -> None:
             return  # don't overlap a manual/auto run already in progress
         job_id = f"autosync_{uuid.uuid4().hex[:8]}"
         _state.update(
-            running=True, job_id=job_id, started_at=_now_iso(), finished_at=None, last_error=None
+            running=True,
+            job_id=job_id,
+            started_at=_now_iso(),
+            finished_at=None,
+            last_error=None,
+            progress={"done": 0, "total": 0, "file": None, "phase": "queued"},
         )
 
     logger.info("Auto-sync %s starting.", job_id)
     try:
-        summary = run_sync(None)
+        summary = run_sync(None, progress_cb=_set_progress)
         with _lock:
             _state["last_summary"] = summary
             _state["last_auto_summary"] = summary
@@ -166,3 +189,4 @@ def _auto_sync_job() -> None:
             _state["last_auto_sync"] = _now_iso()
             _state["running"] = False
             _state["finished_at"] = _now_iso()
+            _state["progress"] = None  # back to idle (contract: None when not running)
