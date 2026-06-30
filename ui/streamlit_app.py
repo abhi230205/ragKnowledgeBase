@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import os
 import uuid
+from datetime import datetime, timezone
 
 import requests
 import streamlit as st
@@ -58,11 +59,28 @@ def sync_state() -> dict:
         return {}
 
 
-def _fmt_ts(iso: str | None) -> str:
-    """Render an ISO timestamp as 'YYYY-MM-DD HH:MM:SS UTC' (best-effort)."""
+def _relative(iso: str | None) -> str:
+    """Render a UTC ISO timestamp as a timezone-agnostic relative time.
+
+    Both the stored timestamp and 'now' are UTC, so the elapsed delta is correct
+    regardless of the viewer's local timezone (avoids the UTC-vs-local confusion).
+    """
     if not iso:
-        return "—"
-    return iso[:19].replace("T", " ") + " UTC"
+        return "never"
+    try:
+        dt = datetime.fromisoformat(iso)
+    except ValueError:
+        return iso
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    secs = max(0, int((datetime.now(timezone.utc) - dt).total_seconds()))
+    if secs < 60:
+        return "just now"
+    if secs < 3600:
+        return f"{secs // 60} min ago"
+    if secs < 86400:
+        return f"{secs // 3600} h ago"
+    return f"{secs // 86400} d ago"
 
 
 def trigger_sync() -> None:
@@ -160,7 +178,7 @@ def page_dashboard() -> None:
     c1, c2, c3 = st.columns(3)
     c1.metric("Documents", status.get("documents", 0))
     c2.metric("Chunks", status.get("chunks", 0))
-    c3.metric("Last sync", status.get("last_sync") or "—")
+    c3.metric("Last sync", _relative(status.get("last_sync")))
 
     if sync.get("running"):
         st.info(f"Sync running… (job {sync.get('job_id')}). Click *Refresh status*.")
@@ -253,7 +271,7 @@ def page_chat() -> None:
         else:
             mins = state.get("auto_sync_minutes", 15)
             st.caption(
-                f"🕒 Last auto-sync: {_fmt_ts(state.get('last_auto_sync'))} · every {mins} min"
+                f"🕒 Last auto-sync: {_relative(state.get('last_auto_sync'))} · every {mins} min"
             )
     with sc[3]:
         if st.button("New chat"):
