@@ -11,8 +11,13 @@ import json
 import uuid
 
 import chromadb
+import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
+import db.session as dbs
+from db.models import Base
 from embeddings import embedder
 from ingestion.chunker import Chunk
 from llm import claude_stream, prompt_builder
@@ -21,6 +26,20 @@ from routes import chat as chat_route
 from vectorstore import chroma_store
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def _isolated_db(tmp_path, monkeypatch):
+    """Give each chat test a fresh temp SQLite (never the live volume DB), so the
+    schema matches the current models and turns don't leak between tests."""
+    engine = create_engine(
+        f"sqlite:///{(tmp_path / 'chat.db').as_posix()}",
+        connect_args={"check_same_thread": False},
+    )
+    Base.metadata.create_all(engine)
+    monkeypatch.setattr(dbs, "engine", engine)
+    monkeypatch.setattr(dbs, "SessionLocal", sessionmaker(bind=engine, expire_on_commit=False))
+    yield
 
 
 def _collect(agen):

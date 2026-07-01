@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Integer, String, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -35,6 +35,8 @@ class Config(Base):
     embedding_model: Mapped[str] = mapped_column(String, default="all-MiniLM-L6-v2")
     chat_model: Mapped[str] = mapped_column(String, default="claude-sonnet-4-6")
     top_k: Mapped[int] = mapped_column(Integer, default=5)
+    # Whether the background auto-sync job runs (toggled from the Chat UI).
+    auto_sync_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
 
     # ---- Secrets: masked in responses, never logged raw, never committed ----
     anthropic_api_key: Mapped[str | None] = mapped_column(Text, nullable=True)

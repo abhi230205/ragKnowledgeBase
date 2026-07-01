@@ -28,6 +28,7 @@ def _reset_state(monkeypatch):
         "last_auto_sync": None,
         "last_auto_summary": None,
         "auto_sync_minutes": settings.auto_sync_minutes,
+        "auto_sync_enabled": True,
         "progress": None,
     }
     monkeypatch.setattr(sched, "_state", baseline)
@@ -50,6 +51,24 @@ def temp_db(tmp_path, monkeypatch):
 
 def test_state_exposes_last_auto_sync():
     assert "last_auto_sync" in sched.get_state()
+
+
+def test_migrate_adds_auto_sync_column(tmp_path, monkeypatch):
+    """_migrate() adds auto_sync_enabled to a config table created before the column."""
+    eng = create_engine(
+        f"sqlite:///{(tmp_path / 'old.db').as_posix()}",
+        connect_args={"check_same_thread": False},
+    )
+    with eng.begin() as conn:  # simulate an older schema (no auto_sync_enabled)
+        conn.exec_driver_sql("CREATE TABLE config (id INTEGER PRIMARY KEY, top_k INTEGER)")
+        conn.exec_driver_sql("INSERT INTO config (id, top_k) VALUES (1, 5)")
+    monkeypatch.setattr(dbs, "engine", eng)
+
+    dbs._migrate()
+
+    with eng.begin() as conn:
+        cols = [r[1] for r in conn.exec_driver_sql("PRAGMA table_info('config')").fetchall()]
+    assert "auto_sync_enabled" in cols
 
 
 def test_config_ready_false_when_unconfigured(temp_db):
@@ -102,6 +121,34 @@ def test_auto_sync_runs_and_records_time(monkeypatch):
     assert state["last_auto_sync"] is not None
     assert state["last_auto_summary"] == {"status": "completed", "summary": {"added": 1}}
     assert state["running"] is False
+
+
+def test_auto_sync_skips_when_disabled(monkeypatch):
+    """The user toggle gates the auto-sync job even when Drive is configured."""
+    calls = {"n": 0}
+
+    def _fake(*a, **k):
+        calls["n"] += 1
+        return {"status": "completed"}
+
+    monkeypatch.setattr(sched, "_config_ready", lambda: True)
+    monkeypatch.setattr(sched, "run_sync", _fake)
+    sched._state["auto_sync_enabled"] = False
+    sched._auto_sync_job()
+    assert calls["n"] == 0
+    assert sched.get_state()["auto_sync_enabled"] is False
+
+
+def test_set_auto_sync_persists_to_config(temp_db):
+    """Toggling persists to the config row and mirrors into the in-memory state."""
+    sched.set_auto_sync(False)
+    assert sched.get_state()["auto_sync_enabled"] is False
+    s = dbs.SessionLocal()
+    assert crud.get_or_create_config(s).auto_sync_enabled is False
+    s.close()
+
+    sched.set_auto_sync(True)
+    assert sched.get_state()["auto_sync_enabled"] is True
 
 
 def test_sync_resets_progress_to_none_when_done(monkeypatch):

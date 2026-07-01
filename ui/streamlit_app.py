@@ -21,6 +21,25 @@ TIMEOUT = 15
 
 st.set_page_config(page_title="RAG Knowledge Base", page_icon="📚", layout="wide")
 
+# Pull both the main content and the sidebar up: Streamlit reserves a tall top
+# header/padding in each by default.
+st.markdown(
+    """
+    <style>
+      .block-container {padding-top: 2rem; padding-bottom: 2rem;}
+      /* Level the sidebar title with the main header: hide the empty logo spacer,
+         shrink the sidebar header, and pull the content up so its title lines up
+         with the main heading (main top = 2rem block padding + header margin). */
+      [data-testid="stSidebarHeader"] [data-testid="stLogoSpacer"] {display: none;}
+      [data-testid="stSidebarHeader"] {padding-top: 0.25rem; padding-bottom: 0rem; min-height: 0;}
+      [data-testid="stSidebarUserContent"] {padding-top: 0.5rem; margin-top: -2.25rem;}
+      /* keep button labels on one line so text-sized buttons don't wrap */
+      .stButton button p {white-space: nowrap;}
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 
 # ----------------------------------------------------------------- API helpers
 
@@ -57,6 +76,14 @@ def sync_state() -> dict:
         return api_get("/sync/status").json()
     except requests.RequestException:
         return {}
+
+
+def set_auto_sync(enabled: bool) -> None:
+    """Persist the auto-sync on/off preference server-side."""
+    try:
+        api_post("/sync/auto", {"enabled": enabled})
+    except requests.RequestException as exc:
+        st.warning(f"Could not update auto-sync: {exc}")
 
 
 def _relative(iso: str | None) -> str:
@@ -315,7 +342,7 @@ def stream_chat(session_id: str, message: str):
 
 
 def page_chat() -> None:
-    st.header("💬 Chat")
+    st.subheader("💬 Chat")
     st.caption("Answers are grounded in your synced documents, with citations.")
 
     if "session_id" not in st.session_state:
@@ -323,22 +350,33 @@ def page_chat() -> None:
     if "messages" not in st.session_state:
         st.session_state.messages = []
 
-    # --- sync controls (Sync now + refresh adjacent), last-sync line below ---
+    # --- sync controls: Sync now + Refresh adjacent; auto-sync toggle below ---
     state = sync_state()
-    sc = st.columns([1.2, 0.6, 3.2, 1.0])
+    mins = state.get("auto_sync_minutes", 15)
+    # Buttons sized to their text (not stretched to fill the columns).
+    sc = st.columns([1.7, 1.2, 2.0, 1.1])
     do_sync = False
     with sc[0]:
         if st.button("🔄 Sync now", type="primary"):
             do_sync = True
     with sc[1]:
-        st.button("↻", help="Refresh sync status")  # any click reruns the script
+        st.button("↻ Refresh", help="Refresh sync status")
     with sc[3]:
         if st.button("New chat"):
             st.session_state.session_id = "ui_" + uuid.uuid4().hex[:8]
             st.session_state.messages = []
             st.rerun()
 
-    # Live progress bar (full width, below the buttons) while a manual sync runs.
+    # Auto-sync on/off toggle, directly under the Sync button.
+    tc = st.columns([2.9, 4.1])
+    with tc[0]:
+        auto_on = bool(state.get("auto_sync_enabled", True))
+        toggled = st.toggle(f"Auto-sync every {mins} min", value=auto_on)
+        if toggled != auto_on:
+            set_auto_sync(toggled)
+            st.rerun()
+
+    # Live progress bar (full width, below the controls) while a manual sync runs.
     if do_sync:
         run_sync_with_progress()
 
@@ -346,10 +384,8 @@ def page_chat() -> None:
     if state.get("running"):
         st.caption("⏳ Sync in progress…")
     else:
-        mins = state.get("auto_sync_minutes", 15)
-        st.caption(
-            f"🕒 Last sync: {_relative(state.get('finished_at'))} · auto-sync every {mins} min"
-        )
+        auto_txt = "on" if auto_on else "off"
+        st.caption(f"🕒 Last sync: {_relative(state.get('finished_at'))} · auto-sync {auto_txt}")
     st.caption(f"Session: `{st.session_state.session_id}`")
 
     for m in st.session_state.messages:

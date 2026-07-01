@@ -27,11 +27,24 @@ SessionLocal = sessionmaker(bind=engine, class_=Session, expire_on_commit=False)
 
 
 def init_db() -> None:
-    """Create the SQLite parent dir and all tables (idempotent)."""
+    """Create the SQLite parent dir and all tables (idempotent), then run any
+    lightweight column migrations for tables that predate a new field."""
     db_dir = os.path.dirname(settings.sqlite_path)
     if db_dir:
         os.makedirs(db_dir, exist_ok=True)
     Base.metadata.create_all(bind=engine)
+    _migrate()
+
+
+def _migrate() -> None:
+    """Add columns that older on-disk DBs are missing. `create_all` only creates
+    absent tables, so a column added to an existing table needs an explicit ALTER."""
+    with engine.begin() as conn:
+        cols = [row[1] for row in conn.exec_driver_sql("PRAGMA table_info('config')").fetchall()]
+        if cols and "auto_sync_enabled" not in cols:
+            conn.exec_driver_sql(
+                "ALTER TABLE config ADD COLUMN auto_sync_enabled BOOLEAN DEFAULT 1"
+            )
 
 
 def get_session() -> Session:

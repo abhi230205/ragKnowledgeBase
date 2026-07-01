@@ -23,7 +23,7 @@ from sse_starlette.sse import EventSourceResponse
 from config import settings
 from db import crud
 from db.session import get_session
-from ingestion.scheduler import get_state, trigger_sync
+from ingestion.scheduler import get_state, set_auto_sync, trigger_sync
 
 router = APIRouter(tags=["sync"])
 
@@ -38,6 +38,10 @@ def _sse(event: str, data) -> dict:
 
 class SyncRequest(BaseModel):
     folder_id: Optional[str] = None
+
+
+class AutoSyncRequest(BaseModel):
+    enabled: bool
 
 
 @router.post("/sync")
@@ -87,6 +91,12 @@ def post_sync(body: Optional[SyncRequest] = None):
 def sync_status() -> dict:
     """Live state of the current/last sync job."""
     return get_state()
+
+
+@router.post("/sync/auto")
+def toggle_auto_sync(body: AutoSyncRequest) -> dict:
+    """Enable/disable the background auto-sync job (persisted). Returns new state."""
+    return set_auto_sync(body.enabled)
 
 
 @router.get("/sync/stream")

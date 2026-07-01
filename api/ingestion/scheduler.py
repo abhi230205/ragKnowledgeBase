@@ -38,6 +38,7 @@ _state: dict = {
     "last_auto_sync": None,  # ISO time the last AUTO-sync finished
     "last_auto_summary": None,  # summary dict of the last auto-sync
     "auto_sync_minutes": settings.auto_sync_minutes,
+    "auto_sync_enabled": True,  # user toggle (persisted in config); gates _auto_sync_job
     "progress": None,  # live {done,total,file,phase} during a run; None when idle
 }
 
@@ -57,11 +58,40 @@ def _set_progress(done: int, total: int, file_name: str | None, phase: str) -> N
         }
 
 
+def set_auto_sync(enabled: bool) -> dict:
+    """Enable/disable the background auto-sync job. Persists the preference to the
+    config table and mirrors it into the in-memory state. Returns the new state."""
+    with _lock:
+        _state["auto_sync_enabled"] = bool(enabled)
+    session = get_session()
+    try:
+        crud.update_config(session, auto_sync_enabled=bool(enabled))
+    except Exception:  # pragma: no cover - persistence is best-effort
+        logger.exception("Could not persist auto_sync_enabled")
+    finally:
+        session.close()
+    return get_state()
+
+
+def _load_auto_sync_pref() -> None:
+    """Load the persisted auto-sync preference into the in-memory state."""
+    session = get_session()
+    try:
+        cfg = crud.get_or_create_config(session)
+        with _lock:
+            _state["auto_sync_enabled"] = bool(getattr(cfg, "auto_sync_enabled", True))
+    except Exception:  # pragma: no cover - default to on if config unreadable
+        logger.exception("Could not load auto_sync preference (defaulting on)")
+    finally:
+        session.close()
+
+
 def start_scheduler() -> None:
     """Start the scheduler + the recurring auto-sync job (from the app lifespan)."""
     global _scheduler
     if _scheduler is not None:
         return
+    _load_auto_sync_pref()
     _scheduler = BackgroundScheduler()
     _scheduler.start()
     _scheduler.add_job(
@@ -153,8 +183,11 @@ def _run_job(folder_id: str | None, job_id: str) -> None:
 
 
 def _auto_sync_job() -> None:
-    """Interval-triggered auto-sync. Skips when Drive isn't configured or a sync is
-    already running; records the completion time as last_auto_sync for the UI."""
+    """Interval-triggered auto-sync. Skips when disabled by the user, when Drive
+    isn't configured, or when a sync is already running; records the completion
+    time as last_auto_sync for the UI."""
+    if not _state.get("auto_sync_enabled", True):
+        return
     if not _config_ready():
         return
     with _lock:
