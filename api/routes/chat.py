@@ -22,7 +22,7 @@ from sse_starlette.sse import EventSourceResponse
 from config import settings
 from db import crud
 from db.session import get_session
-from embeddings import embedder
+from embeddings import embedder, reranker
 from llm import claude_stream
 from vectorstore import chroma_store
 
@@ -38,18 +38,24 @@ class ChatRequest(BaseModel):
 
 
 def _retrieve(query: str, top_k: int) -> list[dict]:
-    """Embed + top-k search + no-context threshold guard. Runs in a threadpool.
+    """Embed + top-N search + no-context threshold guard + cross-encoder re-rank.
+    Runs in a threadpool.
 
-    Returns [] (→ no-context path) when the KB is empty or the best hit is below
-    the relevance floor, so junk context is never handed to Claude.
+    Returns [] (→ no-context path) when the KB is empty or the best cosine hit is
+    below the relevance floor, so junk context is never handed to Claude. The
+    threshold guard stays on the cosine score (the "is anything relevant" decision);
+    re-ranking then reorders the surviving candidates and keeps the best top_k.
     """
     collection = chroma_store.get_collection()
     if chroma_store.count(collection) == 0:
         return []
-    hits = chroma_store.query(collection, embedder.embed_query(query), top_k=top_k)
-    if not hits or hits[0]["score"] < settings.relevance_threshold:
+    # Pull a wider candidate set when re-ranking is on, then let the cross-encoder pick.
+    candidates = chroma_store.query(
+        collection, embedder.embed_query(query), top_k=reranker.candidate_count(top_k)
+    )
+    if not candidates or candidates[0]["score"] < settings.relevance_threshold:
         return []
-    return hits
+    return reranker.rerank(query, candidates, top_k)
 
 
 @router.post("/chat")

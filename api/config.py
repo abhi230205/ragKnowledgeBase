@@ -43,6 +43,11 @@ class Settings(BaseSettings):
     top_k: int = 5
     relevance_threshold: float = 0.25  # cosine-similarity floor for "no context"
 
+    # ---- Re-ranking (bonus): cross-encoder re-rank of the top-N cosine candidates ----
+    rerank_enabled: bool = True
+    rerank_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    rerank_candidates: int = 20  # top-N pulled from the vector store before re-ranking
+
     # ---- Chat / context-window management ----
     max_history_turns: int = 6
     max_output_tokens: int = 1024  # Claude completion cap per answer

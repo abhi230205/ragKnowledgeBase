@@ -21,5 +21,10 @@ def _null_anthropic_key_for_tests():
     """
     original = settings.anthropic_api_key
     settings.anthropic_api_key = None
+    # Gate the cross-encoder re-ranker OFF by default so retrieval tests stay fast
+    # and deterministic (no ~80MB model download); test_reranker.py flips it on.
+    original_rerank = settings.rerank_enabled
+    settings.rerank_enabled = False
     yield
     settings.anthropic_api_key = original
+    settings.rerank_enabled = original_rerank

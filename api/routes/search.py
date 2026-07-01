@@ -23,7 +23,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from config import settings
-from embeddings import embedder
+from embeddings import embedder, reranker
 from vectorstore import chroma_store
 
 router = APIRouter(tags=["search"])
@@ -55,12 +55,17 @@ def search(body: SearchRequest) -> dict:
 
     where = {"file_id": body.file_id} if body.file_id else None
     query_vec = embedder.embed_query(query)
-    hits = chroma_store.query(collection, query_vec, top_k=top_k, where=where)
+    # Retrieve a wider candidate set, then cross-encoder re-rank down to top_k.
+    candidates = chroma_store.query(
+        collection, query_vec, top_k=reranker.candidate_count(top_k), where=where
+    )
+    hits = reranker.rerank(query, candidates, top_k)
 
     results = [
         {
             "rank": h["rank"],
-            "score": h["score"],
+            "score": h["score"],  # cosine similarity (1 - distance)
+            "rerank_score": h.get("rerank_score"),  # cross-encoder score (None if off)
             "file_name": h["file_name"],
             "page": h["page"],
             "start_page": h["start_page"],
