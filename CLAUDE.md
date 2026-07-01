@@ -65,7 +65,7 @@ api/   (FastAPI; also runs ingestion + embedder + embedded Chroma + SQLite)
   config.py          pydantic-settings (env-driven)
   routes/            health(real) · config · sync · search · chat · status
   ingestion/         drive_client(REAL) · pdf_parser · chunker · sync_diff · scheduler
-  embeddings/        embedder (sentence-transformers)
+  embeddings/        embedder (sentence-transformers) · reranker (cross-encoder, bonus)
   vectorstore/       chroma_store (embedded PersistentClient, cosine)
   llm/               prompt_builder · claude_stream (Messages API streaming)
   db/                models (Config, FileRecord) · session · crud

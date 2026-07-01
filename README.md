@@ -74,11 +74,11 @@ api/   FastAPI; also runs ingestion + embedder + embedded Chroma + SQLite
   main.py · config.py
   routes/       health · config · sync (+ /sync/stream) · search · chat · status
   ingestion/    drive_client · pdf_parser · docx_parser · chunker · sync_diff · pipeline · scheduler
-  embeddings/   embedder (sentence-transformers)
+  embeddings/   embedder (sentence-transformers) · reranker (cross-encoder, bonus)
   vectorstore/  chroma_store (embedded PersistentClient, cosine)
   llm/          prompt_builder · claude_stream (Messages API streaming)
   db/           models (Config · FileRecord · ChatMessage) · session · crud
-  tests/        80 tests
+  tests/        96 tests
   scripts/      chunk_inspect.py
 ui/    streamlit_app.py (Settings · Dashboard · Chat)
 ```
@@ -166,8 +166,6 @@ A `/search` endpoint is available independently for testing retrieval
   improvement.
 - **Scanned / image-only PDFs** are detected and flagged `no_extractable_text` (sync
   continues) but not OCR'd. Adding Tesseract (`pytesseract`) would ingest them.
-- **No re-ranking layer** — a cross-encoder re-rank after top-k would lift retrieval
-  quality (a named bonus).
 - **Service-account auth only** — OAuth 2.0 user flow is a bonus not implemented.
 - **DOCX is single-page** — Word has no reliable page model, so a `.docx` is treated
   as one page and its citations show p.1. Splitting on rendered page breaks would
@@ -181,6 +179,10 @@ A `/search` endpoint is available independently for testing retrieval
 
 ### Bonus features implemented
 - **DOCX ingestion** (`python-docx`) behind the same parse → chunk → embed pipeline.
+- **Cross-encoder re-ranking** — after the cosine top-N, a `cross-encoder/ms-marco-MiniLM`
+  re-scores each (query, chunk) pair and keeps the best top-k (`embeddings/reranker.py`,
+  used by `/chat` and `/search`; toggle via `RERANK_ENABLED`). The no-context threshold
+  still runs on the cosine score, so grounding behaviour is unchanged.
 - **Streaming ingestion progress bar** — the UI renders a live `st.progress` bar from
   a `/sync/stream` SSE channel as each file is embedded.
 - **Incremental auto-sync** every 15 minutes (in-process APScheduler), on top of
@@ -216,7 +218,7 @@ test it, and adversarially review it before trusting it.
 ```bash
 docker compose run --rm api pytest          # or, in a venv from ./api: pytest
 ```
-**80 tests** (captured in [docs/test-report.txt](docs/test-report.txt)) cover:
+**96 tests** (captured in [docs/test-report.txt](docs/test-report.txt)) cover:
 - **Unit / integration:** chunking (count/overlap/size/page-spans/short/empty),
   embedding (dimension/determinism/batch), retrieval (relevance/top-k/filter/delete),
   the sync diff (incl. modifiedTime fallback), Drive folder-id parsing, the DOCX
